@@ -396,9 +396,37 @@
       }
 
       .ay-save-button:disabled,
-      .ay-action:disabled {
+      .ay-action:disabled,
+      .ay-chip:disabled {
         opacity: .5;
         cursor: wait;
+      }
+
+      .ay-card-actions {
+        display: grid;
+        gap: 6px;
+        align-self: center;
+      }
+
+      .ay-picker {
+        grid-column: 1 / -1;
+        padding: 12px;
+        border: 1px solid var(--ay-line);
+        border-radius: 12px;
+        background: #101012;
+      }
+
+      .ay-picker-title {
+        margin: 0 0 10px;
+        color: var(--ay-muted);
+        font-size: 12px;
+      }
+
+      .ay-picker .ay-suggestion-list,
+      .ay-picker-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
       }
 
       .ay-item-title {
@@ -441,8 +469,9 @@
           grid-template-columns: minmax(0, 1fr);
         }
 
-        .ay-save-button {
+        .ay-card-actions {
           justify-self: start;
+          grid-auto-flow: column;
         }
 
         .ay-section-heading {
@@ -728,6 +757,71 @@
     return `https://i.ytimg.com/vi/${encodeURIComponent(video.id)}/hqdefault.jpg`;
   }
 
+  /**
+   * Show or hide a small "add to playlist" picker under a result card.
+   */
+  async function togglePlaylistPicker(card, video, trigger) {
+    const existing = card.querySelector(".ay-picker");
+
+    if (existing) {
+      existing.remove();
+      trigger.setAttribute("aria-expanded", "false");
+      return;
+    }
+
+    trigger.disabled = true;
+
+    try {
+      await ensureAuthModules();
+
+      const playlists = await window.AyuTubeLibrary.getPlaylists();
+
+      if (!playlists.length) {
+        setStatus("Create a playlist in Library first, then add videos here.");
+        return;
+      }
+
+      const picker = element("div", "ay-picker");
+      picker.setAttribute("role", "group");
+      picker.setAttribute("aria-label", "Choose a playlist");
+
+      picker.append(element("p", "ay-picker-title", "Add to playlist"));
+
+      const list = element("div", "ay-picker-list");
+
+      for (const playlist of playlists) {
+        const choice = makeButton(playlist.name, "ay-chip", async () => {
+          choice.disabled = true;
+
+          try {
+            await window.AyuTubeLibrary.addToPlaylist(playlist.id, video);
+
+            setStatus(`Added to "${playlist.name}".`);
+            picker.remove();
+            trigger.setAttribute("aria-expanded", "false");
+          } catch (error) {
+            setStatus(error.message || "Unable to add this video.");
+            choice.disabled = false;
+          }
+        });
+
+        list.append(choice);
+      }
+
+      picker.append(list);
+      card.append(picker);
+      trigger.setAttribute("aria-expanded", "true");
+    } catch (error) {
+      if (/sign in/i.test(error.message)) {
+        setStatus("Sign in through Account to use playlists.");
+      } else {
+        setStatus(error.message || "Unable to load your playlists.");
+      }
+    } finally {
+      trigger.disabled = false;
+    }
+  }
+
   function makeResultCard(raw) {
     const video = normalizeVideo(raw);
 
@@ -798,7 +892,22 @@
 
     saveButton.setAttribute("aria-label", `Save ${video.title} to Watch Later`);
 
-    card.append(playButton, saveButton);
+    const playlistButton = makeButton(
+      "＋ Playlist",
+      "ay-save-button",
+      () => togglePlaylistPicker(card, video, playlistButton)
+    );
+
+    playlistButton.setAttribute(
+      "aria-label",
+      `Add ${video.title} to a playlist`
+    );
+    playlistButton.setAttribute("aria-expanded", "false");
+
+    const actions = element("div", "ay-card-actions");
+    actions.append(saveButton, playlistButton);
+
+    card.append(playButton, actions);
 
     return card;
   }
@@ -936,18 +1045,38 @@
 
     if (!validViews.has(view)) return;
 
+    const previousView = state.activeView;
     state.activeView = view;
+
+    const player = window.AyuTubePlayer || window.MiniTubePlayer;
+
+    // Leaving Explore: pause so audio does not continue in a hidden panel.
+    if (view !== "explore" && previousView === "explore") {
+      player?.pause?.();
+    }
 
     const exploreElements = [
       $(SELECTORS.form),
       $("#ayutube-categories"),
       $(SELECTORS.status),
-      $(SELECTORS.results),
-      $(SELECTORS.player)
+      $(SELECTORS.results)
     ].filter(Boolean);
 
     for (const node of exploreElements) {
       node.hidden = view !== "explore";
+    }
+
+    // The player panel is managed by player.js. Only show it when a video
+    // is actually loaded, so returning to Explore never reveals an empty
+    // "NOW PLAYING" box.
+    const playerPanel = $(SELECTORS.player);
+
+    if (playerPanel) {
+      if (view !== "explore") {
+        playerPanel.hidden = true;
+      } else if (previousView !== "explore") {
+        playerPanel.hidden = !player?.isActive?.();
+      }
     }
 
     const libraryView = $("#ayutube-library-view");
@@ -1191,6 +1320,23 @@
     return panel;
   }
 
+  /**
+   * Play a saved video from the Library.
+   * Switch to Explore first so the player panel is visible and can scroll
+   * into view when playback starts.
+   */
+  function playFromLibrary(video) {
+    setView("explore");
+
+    const player = window.AyuTubePlayer || window.MiniTubePlayer;
+
+    if (player?.play) {
+      player.play(video);
+    } else {
+      setStatus("The video player is not ready yet.");
+    }
+  }
+
   async function openPlaylist(playlistId, playlistName) {
     state.activePlaylistId = playlistId;
 
@@ -1226,14 +1372,12 @@
             title: item.title,
             subtitle: item.channel_title,
             play: () => {
-              const player = window.AyuTubePlayer || window.MiniTubePlayer;
-              player?.play?.({
+              playFromLibrary({
                 id: item.video_id,
                 title: item.title,
                 uploaderName: item.channel_title,
                 thumbnail: item.thumbnail_url
               });
-              setView("explore");
             },
             remove: async () => {
               try {
@@ -1344,10 +1488,15 @@
         return;
       }
 
-      for (const playlist of playlists) {
+      // Favorites first; the original newest-first order is kept within groups.
+      const ordered = [...playlists].sort(
+        (a, b) => Number(Boolean(b.is_favorite)) - Number(Boolean(a.is_favorite))
+      );
+
+      for (const playlist of ordered) {
         const panel = element("div", "ay-panel");
         const open = makeButton(
-          playlist.name,
+          `${playlist.is_favorite ? "★ " : ""}${playlist.name}`,
           "ay-action",
           () => openPlaylist(playlist.id, playlist.name)
         );
@@ -1371,6 +1520,21 @@
           makeButton("Open", "ay-action ay-action-primary", () => {
             openPlaylist(playlist.id, playlist.name);
           }),
+          makeButton(
+            playlist.is_favorite ? "★ Favorite" : "☆ Favorite",
+            "ay-action",
+            async () => {
+              try {
+                await window.AyuTubeLibrary.setPlaylistFavorite(
+                  playlist.id,
+                  !playlist.is_favorite
+                );
+                await renderLibrary();
+              } catch (error) {
+                setNotice(container, error.message, "error");
+              }
+            }
+          ),
           makeButton("Delete", "ay-action ay-action-danger", async () => {
             if (!confirm(`Delete the playlist "${playlist.name}"?`)) return;
 
@@ -1417,16 +1581,12 @@
           title: item.title,
           subtitle: item.channel_title,
           play: () => {
-            const player = window.AyuTubePlayer || window.MiniTubePlayer;
-
-            player?.play?.({
+            playFromLibrary({
               id: videoId,
               title: item.title,
               uploaderName: item.channel_title,
               thumbnail: item.thumbnail_url
             });
-
-            setView("explore");
           },
           remove: async () => {
             try {

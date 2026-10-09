@@ -971,11 +971,56 @@
     dom.channel.textContent = "";
   }
 
+  /**
+   * Pause whatever is currently playing without closing the player.
+   * Used when the person leaves the Explore tab.
+   */
+  function pause() {
+    if (!activeItem) return;
+
+    try {
+      if (activeMode === "direct") {
+        dom.video.pause();
+        return;
+      }
+
+      if (activeMode === "youtube" && youtubePlayer) {
+        youtubePlayer.pauseVideo();
+        return;
+      }
+
+      if (activeMode === "youtube-iframe") {
+        // The embed URL includes enablejsapi=1, so it accepts this command.
+        const iframe = document.getElementById("youtube-player");
+
+        iframe?.contentWindow?.postMessage(
+          JSON.stringify({
+            event: "command",
+            func: "pauseVideo",
+            args: []
+          }),
+          "https://www.youtube.com"
+        );
+      }
+    } catch (error) {
+      console.debug("AyuTube could not pause playback:", error);
+    }
+  }
+
+  /**
+   * True while a video is loaded in the player panel.
+   */
+  function isActive() {
+    return Boolean(activeItem);
+  }
+
   dom.closeButton.addEventListener("click", close);
 
   window.AyuTubePlayer = Object.freeze({
     play,
-    close
+    close,
+    pause,
+    isActive
   });
 
   // Keep compatibility with the original app.js and any existing callers.
