@@ -1,283 +1,52 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0b0b0d">
-<title>MiniTube — Search & Watch</title>
-<style>
-:root{color-scheme:dark;--bg:#0b0b0d;--panel:#141417;--panel2:#1b1b20;--line:#29292f;--text:#f6f6f7;--muted:#a2a2ac;--red:#ff3535;--red2:#d91924;--green:#55d6a2;--r:16px}
-*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(850px 380px at 50% -220px,#3a171c 0%,transparent 76%),var(--bg);color:var(--text);font:15px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}button,input,select{font:inherit}button{cursor:pointer}a{color:inherit;text-decoration:none}.topbar{height:70px;padding:0 clamp(16px,4vw,52px);border-bottom:1px solid #ffffff0d;display:flex;align-items:center;gap:20px;position:sticky;top:0;z-index:20;background:#0b0b0deF;backdrop-filter:blur(16px)}.brand{display:flex;gap:10px;align-items:center;flex-shrink:0}.brand-icon{width:34px;height:24px;border-radius:8px;background:linear-gradient(135deg,#ff4c55,#e11b28);display:grid;place-items:center;box-shadow:0 4px 22px #ff353529}.brand-icon svg{width:15px;margin-left:2px}.brand-name{font-size:18px;font-weight:800;letter-spacing:-.7px}.brand-name span{color:#ff5058}.tag{font-size:10px;letter-spacing:1.2px;font-weight:700;border:1px solid #38383f;border-radius:999px;padding:5px 8px;color:#aaa;white-space:nowrap}.top-spacer{flex:1}.top-note{font-size:12px;color:#85858f;display:flex;gap:7px;align-items:center}.dot{width:6px;height:6px;background:var(--green);border-radius:50%;box-shadow:0 0 9px #55d6a266}
-main{max-width:1200px;margin:0 auto;padding:34px clamp(16px,4vw,46px) 70px}.hero{text-align:center;padding:32px 0 26px}.eyebrow{color:#ff696f;font-size:11px;letter-spacing:2.4px;text-transform:uppercase;font-weight:800}.hero h1{font-size:clamp(30px,5vw,48px);line-height:1.05;letter-spacing:-2px;margin:13px 0 13px;font-weight:850}.hero h1 span{color:#ff4b54}.hero p{color:var(--muted);max-width:520px;margin:0 auto;font-size:14px}.search-wrap{max-width:760px;margin:24px auto 17px;display:flex;gap:8px;padding:7px;background:#151518;border:1px solid #34343a;border-radius:15px;box-shadow:0 15px 45px #0007;transition:border-color .2s,box-shadow .2s}.search-wrap:focus-within{border-color:#ff525a99;box-shadow:0 0 0 3px #ff353514,0 15px 45px #0007}.search-icon{margin-left:10px;color:#86868f;display:grid;place-items:center}.search-wrap input{min-width:0;flex:1;border:0;outline:0;color:var(--text);background:transparent;padding:10px 5px;font-size:15px}.search-wrap input::placeholder{color:#73737d}.search-btn{background:var(--red);border:0;border-radius:10px;color:white;font-weight:750;padding:0 21px;min-height:43px;transition:background .2s,transform .15s}.search-btn:hover{background:#ff525b}.search-btn:active{transform:scale(.98)}.search-btn:disabled{opacity:.6;cursor:wait}.quick-searches{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;color:#777780;font-size:12px}.chip{border:1px solid #303036;background:#161619;color:#c6c6cb;padding:6px 11px;border-radius:999px;font-size:12px}.chip:hover{border-color:#696970;color:#fff}.page-head{display:flex;align-items:center;gap:12px;margin:33px 0 17px}.page-head h2{font-size:19px;letter-spacing:-.5px;margin:0;font-weight:760}.result-count{font-size:11px;color:#85858f;background:#1b1b20;border:1px solid #2a2a30;border-radius:999px;padding:4px 8px}.sort-select{margin-left:auto;background:#151518;color:#bbb;border:1px solid #303036;padding:8px 11px;border-radius:9px;font-size:12px;outline:0}.results{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:25px 18px}.video-card{min-width:0;cursor:pointer;outline:none}.thumb-wrap{position:relative;aspect-ratio:16/9;overflow:hidden;border-radius:12px;background:#1b1b21;border:1px solid #ffffff0a}.thumb{width:100%;height:100%;object-fit:cover;display:block;transition:transform .3s,opacity .25s}.video-card:hover .thumb,.video-card:focus-visible .thumb{transform:scale(1.035);opacity:.86}.thumb-overlay{position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(transparent 45%,#0004);opacity:0;transition:opacity .2s}.video-card:hover .thumb-overlay,.video-card:focus-visible .thumb-overlay{opacity:1}.play-disc{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:#ff3535eF;box-shadow:0 3px 24px #0008}.play-disc svg{margin-left:3px}.duration{position:absolute;right:8px;bottom:8px;background:#050507df;color:#fff;font-size:11px;font-weight:700;padding:3px 6px;border-radius:5px}.video-meta{display:flex;gap:11px;padding:11px 2px 0}.avatar{width:35px;height:35px;flex:0 0 35px;border-radius:50%;background:linear-gradient(135deg,#34343b,#17171a);display:grid;place-items:center;color:#bbb;font-size:12px;font-weight:800;border:1px solid #ffffff13;overflow:hidden}.avatar img{width:100%;height:100%;object-fit:cover}.video-text{min-width:0;flex:1}.video-title{margin:0 0 6px;font-weight:700;font-size:14px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;letter-spacing:-.15px}.video-card:hover .video-title{color:#fff}.channel,.video-stats{font-size:12px;color:#9999a3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.video-stats{margin-top:3px;font-size:11px;color:#74747e}.card-actions{display:flex;gap:7px;margin-top:8px;opacity:0;transition:opacity .15s}.video-card:hover .card-actions,.video-card:focus-within .card-actions{opacity:1}.small-action{border:1px solid #33333a;background:#17171b;color:#b9b9c2;padding:4px 8px;border-radius:6px;font-size:11px}.small-action:hover{color:#fff;border-color:#65656c}.empty{grid-column:1/-1;border:1px dashed #34343b;border-radius:18px;padding:55px 20px;text-align:center;color:#92929c}.empty-icon{width:58px;height:58px;border-radius:18px;background:#1d1d22;display:grid;place-items:center;margin:0 auto 16px;color:#ff5a61}.empty h3{color:#ededf0;margin:0 0 7px;font-size:17px}.empty p{font-size:13px;margin:0 auto;max-width:400px;line-height:1.6}.load-line{display:flex;align-items:center;justify-content:center;gap:10px;color:#aaa;font-size:13px;padding:35px}.spinner{width:17px;height:17px;border:2px solid #414147;border-top-color:#ff424a;border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-.player-section{display:none;margin:30px 0 36px;border:1px solid #303036;background:linear-gradient(145deg,#17171b,#101013);border-radius:18px;padding:14px;box-shadow:0 20px 60px #0005}.player-section.active{display:block}.player-head{display:flex;gap:14px;align-items:start;justify-content:space-between;padding:4px 3px 13px}.player-head h2{font-size:16px;margin:0 0 4px;line-height:1.4}.player-head p{font-size:12px;color:#9999a2;margin:0}.close-player{border:1px solid #34343b;background:#202025;color:#aaa;border-radius:9px;width:34px;height:34px;display:grid;place-items:center;flex-shrink:0}.close-player:hover{color:white}.frame-box{aspect-ratio:16/9;width:100%;background:#000;border-radius:11px;overflow:hidden}.frame-box iframe,.frame-box video{height:100%;width:100%;border:0;display:block;background:#000}.player-error{height:100%;min-height:180px;display:grid;place-content:center;text-align:center;padding:24px;color:#bdbdc6;gap:10px}.player-error strong{color:#f3f3f5}.player-error button{justify-self:center}.player-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}.outline-btn{display:inline-flex;align-items:center;gap:7px;border:1px solid #393940;background:#202025;color:#e3e3e7;padding:9px 12px;border-radius:9px;font-size:12px;font-weight:650}.outline-btn:hover{background:#2b2b31}.hint{font-size:11px;color:#777781;margin-left:auto;align-self:center}.footer{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;border-top:1px solid #242429;padding-top:20px;margin-top:44px;color:#75757f;font-size:11px;line-height:1.6}.footer strong{color:#bdbdc5;font-weight:650}.backend{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.backend select{max-width:240px;background:#151518;color:#a9a9b2;border:1px solid #303036;border-radius:7px;padding:6px;font-size:11px}.toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,15px);opacity:0;pointer-events:none;background:#242429;border:1px solid #44444c;border-radius:10px;padding:10px 15px;color:#eee;font-size:12px;z-index:50;box-shadow:0 10px 35px #0009;transition:.2s}.toast.show{opacity:1;transform:translate(-50%,0)}
-@media(max-width:850px){.results{grid-template-columns:repeat(2,minmax(0,1fr));gap:23px 13px}.top-note{display:none}.hero{padding-top:18px}}
-@media(max-width:520px){.topbar{height:61px;padding:0 15px}.tag{font-size:9px}.brand-name{font-size:17px}main{padding:22px 13px 45px}.hero{padding:19px 0 15px}.hero h1{letter-spacing:-1.4px}.hero p{font-size:13px;padding:0 10px}.search-wrap{gap:4px;padding:5px;border-radius:13px;margin-top:20px}.search-wrap input{font-size:14px;padding:8px 1px}.search-btn{padding:0 13px;min-height:40px;font-size:13px}.search-icon{margin-left:5px}.quick-searches{font-size:11px;gap:6px}.chip{padding:6px 9px;font-size:11px}.page-head{margin:25px 0 14px}.page-head h2{font-size:17px}.results{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 10px}.thumb-wrap{border-radius:9px}.video-meta{gap:8px;padding-top:8px}.avatar{width:28px;height:28px;flex-basis:28px;font-size:10px}.video-title{font-size:12px;line-height:1.38;margin-bottom:5px}.channel{font-size:10px}.video-stats{font-size:10px}.duration{font-size:10px;right:5px;bottom:5px}.card-actions{opacity:1}.small-action{font-size:10px;padding:4px 6px}.player-section{padding:8px;border-radius:12px;margin:24px 0}.player-head h2{font-size:14px}.player-head p{font-size:11px}.hint{width:100%;margin-left:0}.footer{flex-direction:column;gap:10px;margin-top:34px}.sort-select{padding:7px;font-size:11px}.result-count{font-size:10px}}
-@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0b0c">
+  <meta name="description" content="A minimal video search and player.">
+  <title>MiniTube</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/style.css">
 </head>
 <body>
-<header class="topbar">
-  <a class="brand" href="#top" aria-label="MiniTube home">
-    <span class="brand-icon"><svg viewBox="0 0 24 24" fill="white" aria-hidden="true"><path d="M8 5.8c0-.75.82-1.2 1.45-.8l9.1 5.7a1.53 1.53 0 0 1 0 2.6l-9.1 5.7A.95.95 0 0 1 8 18.2z"/></svg></span>
-    <span class="brand-name">mini<span>tube</span></span>
-  </a>
-  <span class="tag">LOCAL WEB APP</span>
-  <span class="top-spacer"></span>
-  <div class="top-note"><span class="dot"></span> No API key required</div>
-</header>
-<main id="top">
-  <section class="hero">
-    <div class="eyebrow">Search. Click. Watch.</div>
-    <h1>Your videos, <span>one search away.</span></h1>
-    <p>A tiny browser-based video explorer. Search YouTube results and watch in the built-in player.</p>
-    <form id="searchForm" class="search-wrap" role="search">
-      <span class="search-icon" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7.5"/><path d="m16.5 16.5 4 4"/></svg></span>
-      <input id="query" autocomplete="off" placeholder="Search songs, tutorials, creators…" aria-label="Search videos" maxlength="180">
-      <button class="search-btn" id="searchButton" type="submit">Search</button>
+  <main class="shell">
+    <header class="topbar">
+      <a class="wordmark" href="/" aria-label="MiniTube home">minitube<span>.</span></a>
+      <span class="top-note">VIDEO SEARCH</span>
+    </header>
+
+    <form id="search-form" class="search" role="search">
+      <label class="sr-only" for="search-input">Search videos</label>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.2 4.2"></path></svg>
+      <input id="search-input" name="q" type="search" placeholder="Search videos" autocomplete="off" required>
+      <button id="search-button" type="submit">Search</button>
     </form>
-    <div class="quick-searches"><span>Try:</span><button class="chip" type="button" data-query="lofi hip hop radio">lofi radio</button><button class="chip" type="button" data-query="web development tutorial">web development</button><button class="chip" type="button" data-query="Indian indie music">Indian indie</button><button class="chip" type="button" data-query="space documentary">space</button></div>
-  </section>
 
-  <section id="playerSection" class="player-section" aria-label="Video player">
-    <div class="player-head"><div><h2 id="playingTitle">Now playing</h2><p id="playingChannel">Trying direct playback through the selected public extractor.</p></div><button class="close-player" type="button" id="closePlayer" aria-label="Close player"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 6-12 12M6 6l12 12"/></svg></button></div>
-    <div class="frame-box" id="frameBox"></div>
-    <div class="player-actions"><a id="openYoutube" class="outline-btn" href="https://www.youtube.com" target="_blank" rel="noopener noreferrer"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.6 3.6 12 3.6 12 3.6s-7.6 0-9.4.5A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.8.5 9.4.5 9.4.5s7.6 0 9.4-.5a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8ZM9.6 15.6V8.4l6.3 3.6-6.3 3.6Z"/></svg> Watch on YouTube</a><button id="copyLink" class="outline-btn" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg> Copy video link</button><span class="hint" id="playerHint">Direct playback depends on public extractor availability.</span></div>
-  </section>
+    <section id="status" class="status" aria-live="polite">Search for something to watch.</section>
+    <section id="results" class="results" aria-label="Search results"></section>
 
-  <div class="page-head"><h2 id="sectionTitle">Explore videos</h2><span id="resultCount" class="result-count">Ready</span><select class="sort-select" id="sortSelect" aria-label="Sort results"><option value="default">Relevance</option><option value="views">Most views</option><option value="duration">Longest first</option></select></div>
-  <div id="status" role="status" aria-live="polite" hidden></div>
-  <section class="results" id="results" aria-label="Video search results">
-    <div class="empty"><div class="empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="10.8" cy="10.8" r="7.2"/><path d="m16.2 16.2 4 4M9 8.5l4.5 2.3L9 13.1z"/></svg></div><h3>What do you want to watch?</h3><p>Search for a song, creator, tutorial, or anything else. Results come from a public Piped API instance.</p></div>
-  </section>
+    <section id="player-panel" class="player-panel" hidden>
+      <div class="player-heading">
+        <span class="eyebrow">NOW PLAYING</span>
+        <button id="close-player" class="icon-button" type="button" aria-label="Close player">×</button>
+      </div>
+      <div class="video-frame">
+        <video id="video-player" controls playsinline preload="metadata"></video>
+        <iframe id="youtube-player" title="YouTube player" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen hidden></iframe>
+        <div id="player-message" class="player-message" hidden></div>
+      </div>
+      <h2 id="player-title" class="player-title"></h2>
+      <p id="player-channel" class="player-channel"></p>
+      <a id="watch-youtube" class="watch-link" target="_blank" rel="noopener noreferrer" hidden>Watch on YouTube ↗</a>
+    </section>
 
-  <footer class="footer"><div><strong>MiniTube</strong> · A single-file browser experiment.<br>Search requires internet access. No account or API key is built in.</div><div class="backend"><label for="instanceSelect">Search source</label><select id="instanceSelect" aria-label="Choose search API"><option value="auto">Auto · try working instances</option><option value="https://pipedapi.kavin.rocks">Piped · kavin.rocks</option><option value="https://pipedapi.leptons.xyz">Piped · leptons.xyz</option><option value="https://api.piped.yt">Piped · piped.yt</option><option value="https://pipedapi.privacy.com.de">Piped · privacy.com.de</option><option value="https://pipedapi.adminforge.de">Piped · adminforge.de</option></select></div></footer>
-</main>
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script>
-(() => {
-  'use strict';
-  const $ = (s) => document.querySelector(s);
-  const form = $('#searchForm'), input = $('#query'), button = $('#searchButton');
-  const resultsNode = $('#results'), countNode = $('#resultCount'), titleNode = $('#sectionTitle');
-  const instanceSelect = $('#instanceSelect'), sortSelect = $('#sortSelect'), playerSection = $('#playerSection');
-  const frameBox = $('#frameBox');
-  const INSTANCES = [
-    'https://pipedapi.kavin.rocks',
-    'https://pipedapi.leptons.xyz',
-    'https://api.piped.yt',
-    'https://pipedapi.privacy.com.de',
-    'https://pipedapi.adminforge.de',
-    'https://api.piped.private.coffee',
-    'https://pipedapi.owo.si'
-  ];
-  let videos = [], activeVideo = null, currentQuery = '', requestToken = 0, toastTimer;
-
-  function escapeHTML(value) {
-    return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-  }
-  function text(value, fallback='') { return typeof value === 'string' && value.trim() ? value.trim() : fallback; }
-  function getVideoId(item) {
-    const direct = text(item?.videoId || item?.id || item?.shortId);
-    if (/^[\w-]{11}$/.test(direct)) return direct;
-    const raw = text(item?.url || item?.link);
-    try {
-      const u = new URL(raw, 'https://www.youtube.com');
-      if (u.hostname.includes('youtu.be')) return u.pathname.split('/').filter(Boolean)[0] || '';
-      const v = u.searchParams.get('v');
-      if (v) return v;
-      const match = u.pathname.match(/\/(?:shorts|embed|live)\/([\w-]{11})/);
-      if (match) return match[1];
-    } catch (_) {}
-    const m = raw.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/);
-    return m ? m[1] : '';
-  }
-  function formatDuration(value) {
-    if (typeof value === 'string' && value.includes(':')) return value;
-    const n = Number(value);
-    if (!Number.isFinite(n) || n <= 0) return '';
-    const s = Math.floor(n % 60), m = Math.floor(n / 60) % 60, h = Math.floor(n / 3600);
-    return h ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${m}:${String(s).padStart(2,'0')}`;
-  }
-  function formatViews(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n) || n <= 0) return '';
-    return new Intl.NumberFormat('en', {notation:'compact',maximumFractionDigits:1}).format(n) + ' views';
-  }
-  function normalize(item, base) {
-    const id = getVideoId(item);
-    if (!id) return null;
-    const thumb = text(item.thumbnail || item.thumbnailUrl || item.thumbnails?.[0]?.url, `https://i.ytimg.com/vi/${id}/hqdefault.jpg`);
-    const durationRaw = item.duration ?? item.lengthSeconds ?? item.length ?? '';
-    let durationNum = Number(durationRaw);
-    if (typeof durationRaw === 'string' && durationRaw.includes(':')) {
-      durationNum = durationRaw.split(':').reduce((sum, part) => sum * 60 + Number(part), 0);
-    }
-    return {
-      id,
-      title: text(item.title, 'Untitled video'),
-      channel: text(item.uploaderName || item.uploader || item.author || item.channelName, 'YouTube creator'),
-      channelUrl: item.uploaderUrl || item.channelUrl || '',
-      thumbnail: thumb,
-      duration: formatDuration(durationRaw),
-      durationSeconds: Number.isFinite(durationNum) ? durationNum : 0,
-      views: item.views ?? item.viewCount ?? 0,
-      uploaded: text(item.uploadedDate || item.uploadDate || item.publishedText, ''),
-      description: text(item.shortDescription || item.description, ''),
-      watchUrl: `https://www.youtube.com/watch?v=${id}`,
-      source: base
-    };
-  }
-  async function fetchFrom(base, query, signal) {
-    const url = `${base.replace(/\/$/, '')}/search?q=${encodeURIComponent(query)}&filter=videos`;
-    const response = await fetch(url, {signal, headers:{'Accept':'application/json'}});
-    if (!response.ok) throw new Error(`Search endpoint returned ${response.status}`);
-    const data = await response.json();
-    const arr = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : Array.isArray(data?.videos) ? data.videos : null;
-    if (!arr) throw new Error('Unexpected search response');
-    return {base, items:arr.map(item => normalize(item, base)).filter(Boolean)};
-  }
-  async function searchPiped(query, token) {
-    const chosen = instanceSelect.value;
-    const ordered = chosen === 'auto' ? INSTANCES : [chosen, ...INSTANCES.filter(url => url !== chosen)];
-    let lastError = null;
-    for (const base of ordered) {
-      if (token !== requestToken) throw new Error('Search cancelled');
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 7000);
-      try {
-        const found = await fetchFrom(base, query, controller.signal);
-        clearTimeout(timer);
-        if (token !== requestToken) throw new Error('Search cancelled');
-        // Empty results from a valid instance are legitimate, but another instance may be healthier.
-        if (found.items.length) return found;
-        lastError = new Error('No videos returned by this instance');
-      } catch (error) {
-        clearTimeout(timer);
-        if (token !== requestToken) throw new Error('Search cancelled');
-        lastError = error;
-      }
-    }
-    throw lastError || new Error('All search instances failed');
-  }
-  function loading() {
-    resultsNode.innerHTML = `<div class="empty"><div class="load-line"><span class="spinner"></span><span>Searching public instances…</span></div><p>Trying a working Piped search endpoint.</p></div>`;
-    countNode.textContent = 'Searching';
-    button.disabled = true; button.textContent = 'Searching…';
-  }
-  function stopLoading() { button.disabled = false; button.textContent = 'Search'; }
-  function showEmpty(heading, message, icon='') {
-    resultsNode.innerHTML = `<div class="empty"><div class="empty-icon">${icon || '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="10.8" cy="10.8" r="7.2"/><path d="m16.2 16.2 4 4"/></svg>'}</div><h3>${escapeHTML(heading)}</h3><p>${escapeHTML(message)}</p></div>`;
-  }
-  function renderResults() {
-    let list = [...videos];
-    if (sortSelect.value === 'views') list.sort((a,b) => Number(b.views || 0)-Number(a.views || 0));
-    if (sortSelect.value === 'duration') list.sort((a,b) => b.durationSeconds-a.durationSeconds);
-    countNode.textContent = `${list.length} video${list.length === 1 ? '' : 's'}`;
-    if (!list.length) {
-      showEmpty('No videos found', 'Try a different phrase, or switch the search source at the bottom of this page.');
-      return;
-    }
-    resultsNode.innerHTML = list.map((v, i) => `
-      <article class="video-card" tabindex="0" role="button" aria-label="Play ${escapeHTML(v.title)}" data-index="${i}" data-video-id="${v.id}">
-        <div class="thumb-wrap"><img class="thumb" src="${escapeHTML(v.thumbnail)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='https://i.ytimg.com/vi/${v.id}/hqdefault.jpg'"><div class="thumb-overlay"><span class="play-disc"><svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M8 5.7c0-.7.8-1.1 1.4-.7l9.2 5.6a1.7 1.7 0 0 1 0 2.8l-9.2 5.6A.9.9 0 0 1 8 18.3z"/></svg></span></div>${v.duration ? `<span class="duration">${escapeHTML(v.duration)}</span>` : ''}</div>
-        <div class="video-meta"><div class="avatar" aria-hidden="true">${escapeHTML((v.channel || 'Y').slice(0,1).toUpperCase())}</div><div class="video-text"><h3 class="video-title">${escapeHTML(v.title)}</h3><div class="channel">${escapeHTML(v.channel)}</div><div class="video-stats">${escapeHTML([formatViews(v.views),v.uploaded].filter(Boolean).join(' · ') || 'Video')}</div><div class="card-actions"><button class="small-action" type="button" data-action="play" data-id="${v.id}">Play here</button><a class="small-action" href="${v.watchUrl}" target="_blank" rel="noopener noreferrer" data-action="open">Open ↗</a></div></div></div>
-      </article>`).join('');
-  }
-  async function runSearch(raw) {
-    const query = String(raw || '').trim();
-    if (!query) { input.focus(); showToast('Type something to search.'); return; }
-    currentQuery = query; input.value = query;
-    const token = ++requestToken;
-    titleNode.textContent = `Results for “${query}”`;
-    loading();
-    playerSection.classList.remove('active'); frameBox.innerHTML = ''; activeVideo = null;
-    try {
-      const found = await searchPiped(query, token);
-      if (token !== requestToken) return;
-      videos = found.items;
-      renderResults();
-      if (videos.length) showToast(`Found ${videos.length} videos · ${new URL(found.base).hostname}`);
-      else showToast('No results from available search sources.');
-    } catch (error) {
-      if (token !== requestToken || error.message === 'Search cancelled') return;
-      videos = [];
-      countNode.textContent = 'Unavailable';
-      showEmpty('Search source unavailable', 'Public instances sometimes go offline or block browser requests. Change “Search source” at the bottom and try again, or open YouTube directly.', '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 19a1.5 1.5 0 0 0 1.3 2.2h17.8a1.5 1.5 0 0 0 1.3-2.2L13.3 3.9a1.5 1.5 0 0 0-3 0Z"/></svg>');
-      showToast('Could not reach a search instance.');
-    } finally { if (token === requestToken) stopLoading(); }
-  }
-  async function playVideo(video) {
-    if (!video) return;
-    activeVideo = video;
-    $('#playingTitle').textContent = video.title;
-    $('#playingChannel').textContent = `${video.channel}${video.duration ? ' · ' + video.duration : ''}`;
-    $('#openYoutube').href = video.watchUrl;
-    $('#copyLink').dataset.url = video.watchUrl;
-    $('#playerHint').textContent = 'Loading a direct stream…';
-    frameBox.innerHTML = '<div class="player-error"><span class="spinner" style="margin:auto"></span><strong>Preparing video</strong><span>Requesting a stream from the public extractor.</span></div>';
-    playerSection.classList.add('active');
-    playerSection.scrollIntoView({behavior:'smooth',block:'start'});
-    const candidates = video.source ? [video.source, ...INSTANCES.filter(x => x !== video.source)] : INSTANCES;
-    let lastError = null;
-    for (const base of candidates) {
-      if (activeVideo !== video) return;
-      try {
-        const response = await fetch(`${base.replace(/\/$/, '')}/streams/${encodeURIComponent(video.id)}`, {headers:{'Accept':'application/json'}});
-        if (!response.ok) throw new Error(`Extractor returned ${response.status}`);
-        const data = await response.json();
-        const streams = Array.isArray(data.videoStreams) ? data.videoStreams : [];
-        const usable = streams.filter(x => x.url && x.videoOnly !== true && (!x.mimeType || x.mimeType.includes('video/mp4') || x.mimeType.includes('video/webm')));
-        usable.sort((a,b) => {
-          const score = x => (String(x.mimeType||'').includes('mp4') ? 1000 : 0) + (parseInt(x.quality||'0',10)||0);
-          return score(b)-score(a);
-        });
-        if (!usable.length) throw new Error('No browser-playable combined stream returned');
-        if (activeVideo !== video) return;
-        const media = document.createElement('video');
-        media.controls = true; media.playsInline = true; media.preload = 'metadata'; media.autoplay = true;
-        media.setAttribute('aria-label', video.title); media.src = usable[0].url;
-        media.addEventListener('error', () => { $('#playerHint').textContent = 'This stream could not play in the browser. Try Watch on YouTube.'; }, {once:true});
-        frameBox.replaceChildren(media);
-        $('#playerHint').textContent = `Direct stream · ${usable[0].quality || usable[0].mimeType || 'best available'}`;
-        media.play().catch(() => {});
-        return;
-      } catch (error) { lastError = error; }
-    }
-    if (activeVideo !== video) return;
-    frameBox.innerHTML = `<div class="player-error"><strong>Couldn't load an in-page stream</strong><span>${escapeHTML(lastError?.message || 'Public extractor instances are unavailable.')}</span><span>Since this is opened as a local content:// file, YouTube's embedded player may show Error 153. Use Watch on YouTube below, or try another search source.</span></div>`;
-    $('#playerHint').textContent = 'Public extractors can be temporarily unavailable.';
-  }
-  function showToast(message) {
-    const node = $('#toast'); node.textContent = message; node.classList.add('show');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => node.classList.remove('show'), 2600);
-  }
-  form.addEventListener('submit', e => { e.preventDefault(); runSearch(input.value); });
-  document.querySelectorAll('[data-query]').forEach(chip => chip.addEventListener('click', () => runSearch(chip.dataset.query)));
-  sortSelect.addEventListener('change', renderResults);
-  resultsNode.addEventListener('click', e => {
-    const action = e.target.closest('[data-action]');
-    if (action) {
-      if (action.dataset.action === 'play') { e.preventDefault(); const video = videos.find(v => v.id === action.dataset.id); playVideo(video); }
-      return;
-    }
-    const card = e.target.closest('.video-card');
-    if (card) playVideo(videos.find(v => v.id === card.dataset.videoId));
-  });
-  resultsNode.addEventListener('keydown', e => {
-    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('video-card')) { e.preventDefault(); playVideo(videos.find(v => v.id === e.target.dataset.videoId)); }
-  });
-  $('#closePlayer').addEventListener('click', () => { playerSection.classList.remove('active'); frameBox.innerHTML = ''; activeVideo = null; });
-  $('#copyLink').addEventListener('click', async () => {
-    const url = $('#copyLink').dataset.url;
-    if (!url) return;
-    try { await navigator.clipboard.writeText(url); showToast('Video link copied.'); }
-    catch (_) { window.prompt('Copy this video link:', url); }
-  });
-  window.addEventListener('keydown', e => {
-    if (e.key === '/' && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) { e.preventDefault(); input.focus(); }
-    if (e.key === 'Escape' && playerSection.classList.contains('active')) { playerSection.classList.remove('active'); frameBox.innerHTML = ''; activeVideo = null; }
-  });
-})();
-</script>
+    <footer class="footer">MiniTube</footer>
+  </main>
+  <script src="/assets/js/api.js"></script>
+  <script src="/assets/js/player.js"></script>
+  <script src="/assets/js/app.js"></script>
 </body>
 </html>
