@@ -157,10 +157,25 @@ module.exports = async function handler(req, res) {
       throw new Error("Search provider returned an invalid response.");
     }
 
-    const items = rawItems
-      .slice(0, CONFIG.maxResults)
-      .map(normalizeResult)
-      .filter(Boolean);
+    // Normalize, drop invalid entries and remove duplicate video IDs.
+    // The first occurrence wins so the provider's ranking is preserved.
+    const seenIds = new Set();
+    const items = [];
+
+    for (const rawItem of rawItems) {
+      const item = normalizeResult(rawItem);
+
+      if (!item || seenIds.has(item.id)) {
+        continue;
+      }
+
+      seenIds.add(item.id);
+      items.push(item);
+
+      if (items.length >= CONFIG.maxResults) {
+        break;
+      }
+    }
 
     // Allow short-lived CDN caching for successful searches.
     // Errors and invalid requests remain non-cacheable.
