@@ -1,0 +1,9 @@
+{
+  "name": "ayutube",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AyuTube - video discovery UI with Vercel serverless API routes and Supabase.",
+  "engines": {
+    "node": "22.x"
+  }
+}
