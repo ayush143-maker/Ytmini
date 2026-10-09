@@ -1,52 +1,191 @@
+
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b0b0c">
-  <meta name="description" content="A minimal video search and player.">
-  <title>MiniTube</title>
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  >
+
+  <meta name="theme-color" content="#050607">
+  <meta name="color-scheme" content="dark">
+
+  <meta
+    name="description"
+    content="AyuTube — explore videos across cartoons, mathematics, coding, puzzles and fascinating facts."
+  >
+
+  <meta name="application-name" content="AyuTube">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="AyuTube — Watch Without Limits">
+  <meta
+    property="og:description"
+    content="Explore cartoons, mathematics, coding, puzzles and fascinating facts."
+  >
+
+  <title>AyuTube — Explore Videos</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link
+    rel="preconnect"
+    href="https://fonts.gstatic.com"
+    crossorigin
+  >
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  >
+
   <link rel="stylesheet" href="/assets/css/style.css">
 </head>
+
 <body>
   <main class="shell">
+    <!-- Brand header -->
     <header class="topbar">
-      <a class="wordmark" href="/" aria-label="MiniTube home">minitube<span>.</span></a>
-      <span class="top-note">VIDEO SEARCH</span>
+      <a
+        class="wordmark"
+        href="/"
+        aria-label="AyuTube home"
+      ><span>AYU</span><span>TUBE</span></a>
+
+      <span class="top-note">VIDEO DISCOVERY</span>
     </header>
 
-    <form id="search-form" class="search" role="search">
-      <label class="sr-only" for="search-input">Search videos</label>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.2 4.2"></path></svg>
-      <input id="search-input" name="q" type="search" placeholder="Search videos" autocomplete="off" required>
-      <button id="search-button" type="submit">Search</button>
+    <!-- Main navigation is rendered by app.js -->
+    <!-- Search remains available without a signed-in account. -->
+    <form
+      id="search-form"
+      class="search"
+      role="search"
+      autocomplete="off"
+    >
+      <label class="sr-only" for="search-input">
+        Search videos
+      </label>
+
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <circle cx="10.8" cy="10.8" r="6.8"></circle>
+        <path d="m16 16 4.2 4.2"></path>
+      </svg>
+
+      <input
+        id="search-input"
+        name="q"
+        type="search"
+        placeholder="Search videos"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        enterkeyhint="search"
+        maxlength="200"
+        required
+      >
+
+      <button id="search-button" type="submit">
+        Search
+      </button>
     </form>
 
-    <section id="status" class="status" aria-live="polite">Search for something to watch.</section>
-    <section id="results" class="results" aria-label="Search results"></section>
-
-    <section id="player-panel" class="player-panel" hidden>
-      <div class="player-heading">
-        <span class="eyebrow">NOW PLAYING</span>
-        <button id="close-player" class="icon-button" type="button" aria-label="Close player">×</button>
-      </div>
-      <div class="video-frame">
-        <video id="video-player" controls playsinline preload="metadata"></video>
-        <iframe id="youtube-player" title="YouTube player" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen hidden></iframe>
-        <div id="player-message" class="player-message" hidden></div>
-      </div>
-      <h2 id="player-title" class="player-title"></h2>
-      <p id="player-channel" class="player-channel"></p>
-      <a id="watch-youtube" class="watch-link" target="_blank" rel="noopener noreferrer" hidden>Watch on YouTube ↗</a>
+    <!-- Search feedback -->
+    <section
+      id="status"
+      class="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      Search for something to watch.
     </section>
 
-    <footer class="footer">MiniTube</footer>
+    <!-- Video search results -->
+    <section
+      id="results"
+      class="results"
+      aria-label="Video search results"
+    ></section>
+
+    <!-- Shared player -->
+    <section
+      id="player-panel"
+      class="player-panel"
+      aria-label="Video player"
+      hidden
+    >
+      <div class="player-heading">
+        <span class="eyebrow">NOW PLAYING</span>
+
+        <button
+          id="close-player"
+          class="icon-button"
+          type="button"
+          aria-label="Close player"
+        >
+          ×
+        </button>
+      </div>
+
+      <div class="video-frame">
+        <video
+          id="video-player"
+          controls
+          playsinline
+          preload="metadata"
+          hidden
+        ></video>
+
+        <iframe
+          id="youtube-player"
+          title="YouTube video player"
+          allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+          allowfullscreen
+          referrerpolicy="strict-origin-when-cross-origin"
+          hidden
+        ></iframe>
+
+        <div
+          id="player-message"
+          class="player-message"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></div>
+      </div>
+
+      <h2 id="player-title" class="player-title"></h2>
+
+      <p id="player-channel" class="player-channel"></p>
+
+      <a
+        id="watch-youtube"
+        class="watch-link"
+        target="_blank"
+        rel="noopener noreferrer"
+        hidden
+      >
+        Watch on YouTube ↗
+      </a>
+    </section>
+
+    <footer class="footer">
+      AYUTUBE · WATCH WHAT MATTERS
+    </footer>
   </main>
+
+  <!-- Load modules in dependency order. -->
   <script src="/assets/js/api.js"></script>
   <script src="/assets/js/player.js"></script>
+  <script src="/assets/js/categories.js"></script>
+  <script src="/assets/js/supabase.js"></script>
+  <script src="/assets/js/auth.js"></script>
+  <script src="/assets/js/library.js"></script>
   <script src="/assets/js/app.js"></script>
 </body>
 </html>
