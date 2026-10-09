@@ -1,4 +1,3 @@
-
 (() => {
   "use strict";
 
@@ -7,6 +6,7 @@
     moduleTimeoutMs: 15000,
     historyIntervalMs: 15000,
     historyMinimumProgressDelta: 8,
+    youtubeReadyTimeoutMs: 10000,
     validIdPattern: /^[A-Za-z0-9_-]{6,20}$/
   });
 
@@ -775,7 +775,6 @@
       const iframe = getIframe();
 
       iframe.hidden = false;
-      iframe.removeAttribute("src");
       iframe.title = item.title;
       iframe.referrerPolicy = "strict-origin-when-cross-origin";
       iframe.allowFullscreen = true;
@@ -784,18 +783,28 @@
 
       showMessage("Loading YouTube player…");
 
+      // When YT.Player receives an existing <iframe>, it attaches to that
+      // iframe's current src (videoId/playerVars are ignored). The src must
+      // therefore already be the embed URL with enablejsapi=1.
+      iframe.src = youtubeEmbedUrl(item.id);
+
+      let playerReady = false;
+
+      // If the player never reports ready (blocked embed, network problem),
+      // stop showing "Loading…" forever and offer the YouTube link instead.
+      setTimeout(() => {
+        if (playerReady || !isCurrent(token) || activeMode !== "youtube") {
+          return;
+        }
+
+        handleYouTubeError({ data: "ready-timeout" }, token);
+      }, CONFIG.youtubeReadyTimeoutMs);
+
       youtubePlayer = new YT.Player(iframe, {
-        videoId: item.id,
-        playerVars: {
-          autoplay: 1,
-          playsinline: 1,
-          rel: 0,
-          controls: 1,
-          enablejsapi: 1,
-          origin: location.origin
-        },
         events: {
           onReady: (event) => {
+            playerReady = true;
+
             if (!isCurrent(token)) {
               try {
                 event.target.destroy();
