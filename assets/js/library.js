@@ -5,7 +5,9 @@
     playlists: "playlists",
     playlistItems: "playlist_items",
     watchLater: "watch_later",
-    history: "watch_history"
+    history: "watch_history",
+    channelPrefs: "channel_preferences",
+    notes: "video_notes"
   });
 
   const LIMITS = Object.freeze({
@@ -672,6 +674,166 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Playlist progress (computed from watch history; no extra table)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns { [playlistId]: { total, completed } } where a video counts as
+   * completed once at least 90% of it has been watched.
+   */
+  async function getPlaylistProgress() {
+    const { client } = await getContext();
+
+    const [items, history] = await Promise.all([
+      execute(
+        client.from(TABLES.playlistItems).select("playlist_id, video_id"),
+        "Unable to load playlist progress."
+      ),
+      execute(
+        client
+          .from(TABLES.history)
+          .select("video_id, progress_seconds, duration_seconds"),
+        "Unable to load playlist progress."
+      )
+    ]);
+
+    const finished = new Set();
+
+    for (const row of history || []) {
+      const duration = Number(row.duration_seconds) || 0;
+      const progress = Number(row.progress_seconds) || 0;
+
+      if (duration > 0 && progress / duration >= 0.9) {
+        finished.add(row.video_id);
+      }
+    }
+
+    const result = {};
+
+    for (const item of items || []) {
+      const entry = (result[item.playlist_id] ||= { total: 0, completed: 0 });
+
+      entry.total += 1;
+      if (finished.has(item.video_id)) entry.completed += 1;
+    }
+
+    return result;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Channel preferences: follow or hide a channel
+  // ---------------------------------------------------------------------------
+
+  const CHANNEL_KINDS = new Set(["follow", "block"]);
+
+  async function getChannelPrefs() {
+    const { client } = await getContext();
+
+    return execute(
+      client
+        .from(TABLES.channelPrefs)
+        .select("channel_key, channel_name, kind, created_at")
+        .order("created_at", { ascending: false }),
+      "Unable to load your channels."
+    );
+  }
+
+  async function setChannelPref({ channel_key, channel_name, kind } = {}) {
+    const key = requireString(channel_key, "Channel").slice(0, 200);
+    const name = requireString(channel_name, "Channel name").slice(0, 300);
+
+    if (!CHANNEL_KINDS.has(kind)) {
+      throw new Error("Choose follow or block.");
+    }
+
+    const { client, user } = await getContext();
+
+    return execute(
+      client
+        .from(TABLES.channelPrefs)
+        .upsert(
+          { user_id: user.id, channel_key: key, channel_name: name, kind },
+          { onConflict: "user_id,channel_key" }
+        )
+        .select("channel_key, channel_name, kind, created_at")
+        .single(),
+      "Unable to save this channel."
+    );
+  }
+
+  async function removeChannelPref(channelKey) {
+    const key = requireString(channelKey, "Channel").slice(0, 200);
+    const { client } = await getContext();
+
+    await execute(
+      client.from(TABLES.channelPrefs).delete().eq("channel_key", key),
+      "Unable to update this channel."
+    );
+
+    return { success: true };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Timestamped notes
+  // ---------------------------------------------------------------------------
+
+  const NOTE_MAX_LENGTH = 1000;
+  const NOTE_MAX_SECONDS = 604800;
+
+  async function getNotes(videoId) {
+    const id = validateVideoId(videoId);
+    const { client } = await getContext();
+
+    return execute(
+      client
+        .from(TABLES.notes)
+        .select("id, video_id, seconds, body, created_at")
+        .eq("video_id", id)
+        .order("seconds", { ascending: true })
+        .order("created_at", { ascending: true }),
+      "Unable to load your notes."
+    );
+  }
+
+  async function addNote({ video_id, seconds = 0, body } = {}) {
+    const id = validateVideoId(video_id);
+    const text = requireString(body, "Note");
+
+    if (text.length > NOTE_MAX_LENGTH) {
+      throw new Error(`Notes can be up to ${NOTE_MAX_LENGTH} characters.`);
+    }
+
+    const at = Math.floor(Number(seconds));
+
+    if (!Number.isFinite(at) || at < 0 || at > NOTE_MAX_SECONDS) {
+      throw new Error("That note time is not valid.");
+    }
+
+    const { client, user } = await getContext();
+
+    return execute(
+      client
+        .from(TABLES.notes)
+        .insert({ user_id: user.id, video_id: id, seconds: at, body: text })
+        .select("id, video_id, seconds, body, created_at")
+        .single(),
+      "Unable to save this note."
+    );
+  }
+
+  async function deleteNote(noteId) {
+    const id = validateUuid(noteId, "Note");
+    const { client } = await getContext();
+
+    await execute(
+      client.from(TABLES.notes).delete().eq("id", id),
+      "Unable to delete this note."
+    );
+
+    return { success: true };
+  }
+
+  // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 
@@ -694,6 +856,16 @@
     getHistory,
     saveHistoryEntry,
     removeHistoryEntry,
-    clearHistory
+    clearHistory,
+
+    getPlaylistProgress,
+
+    getChannelPrefs,
+    setChannelPref,
+    removeChannelPref,
+
+    getNotes,
+    addNote,
+    deleteNote
   });
 })();

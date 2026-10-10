@@ -1,8 +1,9 @@
+
 (() => {
   "use strict";
 
   const CONFIG = Object.freeze({
-    streamTimeoutMs: 15000,
+    streamTimeoutMs: 5000,
     moduleTimeoutMs: 15000,
     historyIntervalMs: 15000,
     historyMinimumProgressDelta: 8,
@@ -27,6 +28,33 @@
   };
 
   const scriptPromises = new Map();
+
+  // Tiny event emitter so the page can react to playback without polling.
+  const listeners = {
+    play: new Set(),
+    close: new Set(),
+    ended: new Set(),
+    state: new Set()
+  };
+
+  function emit(name, payload) {
+    for (const handler of listeners[name] || []) {
+      try {
+        handler(payload);
+      } catch (error) {
+        console.error(`AyuTube player "${name}" listener failed:`, error);
+      }
+    }
+  }
+
+  function on(name, handler) {
+    listeners[name]?.add(handler);
+
+    return () => listeners[name]?.delete(handler);
+  }
+
+  let activeStart = 0;
+  let activeRate = 1;
 
   let activeItem = null;
   let activeToken = 0;
@@ -177,7 +205,7 @@
     return `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
   }
 
-  function youtubeEmbedUrl(id) {
+  function youtubeEmbedUrl(id, start = 0) {
     const url = new URL(
       `https://www.youtube.com/embed/${encodeURIComponent(id)}`
     );
@@ -186,6 +214,10 @@
     url.searchParams.set("playsinline", "1");
     url.searchParams.set("rel", "0");
     url.searchParams.set("enablejsapi", "1");
+
+    if (start > 0) {
+      url.searchParams.set("start", String(Math.floor(start)));
+    }
 
     if (location.protocol === "https:" || location.protocol === "http:") {
       url.searchParams.set("origin", location.origin);
@@ -503,6 +535,7 @@
 
       hideMessage();
       queueHistory(true);
+      emit("state", "playing");
     };
 
     dom.video.ontimeupdate = () => {
@@ -515,12 +548,15 @@
       if (!isCurrent(token) || activeMode !== "direct") return;
 
       queueHistory(true);
+      emit("state", "paused");
     };
 
     dom.video.onended = () => {
       if (!isCurrent(token) || activeMode !== "direct") return;
 
       queueHistory(true);
+      emit("state", "ended");
+      emit("ended", item);
     };
 
     dom.video.onerror = () => {
@@ -609,6 +645,21 @@
     dom.video.playsInline = true;
     dom.video.preload = "metadata";
     dom.video.src = stream.url;
+    dom.video.playbackRate = activeRate;
+
+    if (activeStart > 0) {
+      dom.video.addEventListener(
+        "loadedmetadata",
+        () => {
+          try {
+            dom.video.currentTime = activeStart;
+          } catch {
+            // Seeking is best effort.
+          }
+        },
+        { once: true }
+      );
+    }
 
     const iframe = getIframe();
     iframe.hidden = true;
@@ -720,6 +771,7 @@
     if (state === states.PLAYING) {
       hideMessage();
       queueHistory(true);
+      emit("state", "playing");
 
       clearYoutubeProgressTimer();
 
@@ -738,12 +790,15 @@
     if (state === states.PAUSED) {
       clearYoutubeProgressTimer();
       queueHistory(true);
+      emit("state", "paused");
       return;
     }
 
     if (state === states.ENDED) {
       clearYoutubeProgressTimer();
       queueHistory(true);
+      emit("state", "ended");
+      emit("ended", activeItem);
     }
   }
 
@@ -755,7 +810,7 @@
     console.warn("YouTube embed returned an error:", error?.data);
 
     showMessage(
-      "This video could not be played in the embedded player. Open it on YouTube instead.",
+      "This video can't be played here.",
       true
     );
 
@@ -781,12 +836,12 @@
       iframe.allow =
         "autoplay; encrypted-media; picture-in-picture; fullscreen";
 
-      showMessage("Loading YouTube player…");
+      showMessage("Loading…");
 
       // When YT.Player receives an existing <iframe>, it attaches to that
       // iframe's current src (videoId/playerVars are ignored). The src must
       // therefore already be the embed URL with enablejsapi=1.
-      iframe.src = youtubeEmbedUrl(item.id);
+      iframe.src = youtubeEmbedUrl(item.id, activeStart);
 
       let playerReady = false;
 
@@ -813,6 +868,12 @@
             }
 
             hideMessage();
+
+            try {
+              event.target.setPlaybackRate(activeRate);
+            } catch {
+              // Not every video supports every speed.
+            }
 
             try {
               event.target.playVideo();
@@ -855,13 +916,13 @@
       iframe.allow =
         "autoplay; encrypted-media; picture-in-picture; fullscreen";
 
-      iframe.src = youtubeEmbedUrl(item.id);
+      iframe.src = youtubeEmbedUrl(item.id, activeStart);
 
       // This path is used only if the IFrame API itself is unavailable.
       // The embed can play, but reliable playback-time events are unavailable.
       hideMessage();
     } catch {
-      showMessage("Unable to load this video. Open it on YouTube.", true);
+      showMessage("This video can't be played here.", true);
       showWatchLink();
     }
   }
@@ -890,7 +951,7 @@
     const iframe = getIframe();
     iframe.hidden = false;
 
-    showMessage("Direct playback unavailable. Opening YouTube…");
+    showMessage("Loading…");
 
     await attachYouTubePlayer(item, token);
   }
@@ -899,7 +960,7 @@
   // Main player API
   // ---------------------------------------------------------------------------
 
-  async function play(rawItem) {
+  async function play(rawItem, options = {}) {
     let item;
 
     try {
@@ -910,6 +971,9 @@
     }
 
     const token = ++activeToken;
+
+    const start = Number(options?.start);
+    activeStart = Number.isFinite(start) && start > 0 ? Math.floor(start) : 0;
 
     activeItem = item;
     activeMode = "loading";
@@ -929,11 +993,13 @@
     dom.title.textContent = item.title;
     dom.channel.textContent = item.uploaderName || "";
 
+    emit("play", item);
+
     // The YouTube link remains hidden unless the embed reports an error.
     dom.watchLink.href = youtubeWatchUrl(item.id);
     dom.watchLink.hidden = true;
 
-    showMessage("Loading video…");
+    showMessage("Loading…");
 
     try {
       dom.panel.scrollIntoView({
@@ -978,6 +1044,8 @@
     dom.panel.hidden = true;
     dom.title.textContent = "";
     dom.channel.textContent = "";
+
+    emit("close");
   }
 
   /**
@@ -1025,11 +1093,136 @@
 
   dom.closeButton.addEventListener("click", close);
 
+  function commandIframe(func, args = []) {
+    const iframe = document.getElementById("youtube-player");
+
+    iframe?.contentWindow?.postMessage(
+      JSON.stringify({ event: "command", func, args }),
+      "https://www.youtube.com"
+    );
+  }
+
+  /** Continue playback after pause(). */
+  function resume() {
+    if (!activeItem) return;
+
+    try {
+      if (activeMode === "direct") {
+        dom.video.play()?.catch?.(() => {});
+      } else if (activeMode === "youtube" && youtubePlayer) {
+        youtubePlayer.playVideo();
+      } else if (activeMode === "youtube-iframe") {
+        commandIframe("playVideo");
+      }
+    } catch (error) {
+      console.debug("AyuTube could not resume playback:", error);
+    }
+  }
+
+  /** True when the current position can be read (not the bare iframe mode). */
+  function canTrackTime() {
+    return (
+      activeMode === "direct" ||
+      (activeMode === "youtube" &&
+        typeof youtubePlayer?.getCurrentTime === "function")
+    );
+  }
+
+  function getCurrentTime() {
+    try {
+      if (activeMode === "direct") return Number(dom.video.currentTime) || 0;
+
+      if (activeMode === "youtube" && youtubePlayer?.getCurrentTime) {
+        return Number(youtubePlayer.getCurrentTime()) || 0;
+      }
+    } catch {
+      // Fall through to 0.
+    }
+
+    return 0;
+  }
+
+  function seek(seconds) {
+    const target = Math.max(0, Number(seconds) || 0);
+
+    if (!activeItem) return;
+
+    try {
+      if (activeMode === "direct") {
+        dom.video.currentTime = target;
+      } else if (activeMode === "youtube" && youtubePlayer) {
+        youtubePlayer.seekTo(target, true);
+      } else if (activeMode === "youtube-iframe") {
+        commandIframe("seekTo", [target, true]);
+      }
+    } catch (error) {
+      console.debug("AyuTube could not seek:", error);
+    }
+  }
+
+  const RATES = Object.freeze([0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]);
+
+  function setRate(rate) {
+    const value = Number(rate);
+
+    if (!RATES.includes(value)) return activeRate;
+
+    activeRate = value;
+
+    try {
+      if (activeMode === "direct") {
+        dom.video.playbackRate = value;
+      } else if (activeMode === "youtube" && youtubePlayer) {
+        youtubePlayer.setPlaybackRate(value);
+      } else if (activeMode === "youtube-iframe") {
+        commandIframe("setPlaybackRate", [value]);
+      }
+    } catch (error) {
+      console.debug("AyuTube could not change speed:", error);
+    }
+
+    return activeRate;
+  }
+
+  /**
+   * Fill in details that were unknown when playback started (for example a
+   * shared link that only carried the video ID).
+   */
+  function updateDetails(details = {}) {
+    if (!activeItem) return;
+
+    if (typeof details.title === "string" && details.title.trim()) {
+      activeItem.title = details.title.trim().slice(0, 500);
+      dom.title.textContent = activeItem.title;
+    }
+
+    if (typeof details.uploaderName === "string") {
+      activeItem.uploaderName = details.uploaderName.slice(0, 300);
+      dom.channel.textContent = activeItem.uploaderName;
+    }
+
+    if (
+      typeof details.thumbnail === "string" &&
+      details.thumbnail.startsWith("https://")
+    ) {
+      activeItem.thumbnail = details.thumbnail.slice(0, 2000);
+    }
+  }
+
   window.AyuTubePlayer = Object.freeze({
     play,
     close,
     pause,
-    isActive
+    resume,
+    updateDetails,
+    isActive,
+    seek,
+    setRate,
+    getRate: () => activeRate,
+    rates: RATES,
+    getCurrentTime,
+    canTrackTime,
+    on
   });
 
   // Keep compatibility with the original app.js and any existing callers.
