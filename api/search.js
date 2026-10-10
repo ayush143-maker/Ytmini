@@ -2,111 +2,12 @@
 "use strict";
 
 const { piped } = require("./_piped");
+const { normalizeResult } = require("./_normalize");
 
 const CONFIG = Object.freeze({
   maxQueryLength: 200,
-  maxResults: 100,
-  maxTitleLength: 500,
-  maxChannelLength: 300,
-  maxUrlLength: 2000,
-  maxThumbnailLength: 2000,
-  videoIdPattern: /^[A-Za-z0-9_-]{6,20}$/
+  maxResults: 100
 });
-
-function text(value, maxLength, fallback = "") {
-  if (typeof value !== "string") {
-    return fallback;
-  }
-
-  const result = value.trim().slice(0, maxLength);
-
-  return result || fallback;
-}
-
-function getVideoId(item) {
-  if (
-    typeof item.id === "string" &&
-    CONFIG.videoIdPattern.test(item.id)
-  ) {
-    return item.id;
-  }
-
-  const url = typeof item.url === "string" ? item.url : "";
-
-  const match = url.match(
-    /(?:[?&]v=|youtu\.be\/|\/shorts\/|\/embed\/)([A-Za-z0-9_-]{6,20})(?=$|[&#/?])/i
-  );
-
-  return match?.[1] || "";
-}
-
-function secureThumbnail(value) {
-  if (typeof value !== "string" || value.length > CONFIG.maxThumbnailLength) {
-    return "";
-  }
-
-  try {
-    const url = new URL(value);
-
-    if (
-      url.protocol !== "https:" ||
-      !url.hostname ||
-      url.username ||
-      url.password
-    ) {
-      return "";
-    }
-
-    return url.href;
-  } catch {
-    return "";
-  }
-}
-
-function normalizeResult(item) {
-  if (!item || typeof item !== "object" || Array.isArray(item)) {
-    return null;
-  }
-
-  const id = getVideoId(item);
-
-  // Ignore entries that cannot identify a valid YouTube video.
-  if (!id) {
-    return null;
-  }
-
-  const title = text(
-    item.title,
-    CONFIG.maxTitleLength,
-    "Untitled video"
-  );
-
-  const channel = text(
-    item.uploaderName || item.channelTitle || item.channel,
-    CONFIG.maxChannelLength,
-    "Unknown channel"
-  );
-
-  const originalUrl = text(
-    item.url,
-    CONFIG.maxUrlLength,
-    `https://www.youtube.com/watch?v=${id}`
-  );
-
-  const thumbnail = secureThumbnail(
-    item.thumbnail || item.thumbnailUrl
-  );
-
-  return {
-    id,
-    url: originalUrl,
-    title,
-    uploaderName: channel,
-    channel,
-    thumbnail,
-    thumbnailUrl: thumbnail
-  };
-}
 
 module.exports = async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
