@@ -1,6 +1,6 @@
 /* ==========================================================================
    ayutube design system: Swiss editorial
-   Ink ground, steel rules, one pink accent. Everything is a rectangle.
+   Pure black ground, grey rules, one pink accent. Everything is a rectangle.
    One grotesk (Schibsted Grotesk) set flush-left, big against small, with
    heavy top rules for structure. The only script is the wordmark.
    ========================================================================== */
@@ -10,15 +10,15 @@
 :root {
   color-scheme: dark;
 
-  --ink: #0f1a2b;
-  --slate: #17263b;
-  --slate-hi: #1e3150;
-  --steel: #2c3f59;
-  --steel-hi: #46608a;
+  --ink: #000000;
+  --slate: #121212;
+  --slate-hi: #1d1d1d;
+  --steel: #2e2e2e;
+  --steel-hi: #5c5c5c;
 
-  --paper: #eceff3;
-  --fog: #9aa8ba;
-  --dim: #8697af;
+  --paper: #f2f2f2;
+  --fog: #a6a6a6;
+  --dim: #8c8c8c;
 
   --pink: #fb2a5f;
   --pink-press: #ff4d76;
@@ -343,6 +343,7 @@ body.has-now-playing .stage {
     flex-direction: column;
     align-items: stretch;
     margin: auto 20px 0;
+    padding: 14px;
     border: 1px solid var(--steel);
   }
 
@@ -795,7 +796,7 @@ body.has-now-playing .toast {
   right: 0;
   bottom: 0;
   height: 4px;
-  background: rgba(236, 239, 243, 0.3);
+  background: rgba(242, 242, 242, 0.3);
 }
 
 .vcard-progress i {
@@ -1486,7 +1487,7 @@ body.has-now-playing .toast {
   flex: 1;
   max-width: 240px;
   height: 4px;
-  background: rgba(236, 239, 243, 0.22);
+  background: rgba(242, 242, 242, 0.22);
 }
 
 .lib-progress-bar i {
