@@ -30,6 +30,7 @@
   --script: "Sacramento", "Snell Roundhand", "Segoe Script", "Brush Script MT",
     cursive;
 
+  --ecg-duration: 1.5s;
   --gutter: 16px;
   --rail-w: 236px;
   --tabbar-h: calc(60px + env(safe-area-inset-bottom, 0px));
@@ -210,8 +211,8 @@ p {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
-  stroke-linejoin: miter;
-  stroke-linecap: square;
+  stroke-linejoin: round;
+  stroke-linecap: round;
 }
 
 .ay-tab[aria-current="page"] {
@@ -1575,4 +1576,384 @@ body.has-now-playing .toast {
 
 .suggest-clear:hover {
   color: var(--paper);
+}
+
+/* 16. Channel page --------------------------------------------------------- */
+
+.vcard-channel,
+.lib-channel,
+.watch-channel {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vcard-channel:hover,
+.lib-channel:hover,
+.watch-channel:hover {
+  color: var(--paper);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.watch-channel:empty {
+  display: none;
+}
+
+.channel {
+  padding-top: 26px;
+}
+
+.channel-head {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-top: 22px;
+}
+
+.channel-avatar {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  background: var(--slate);
+}
+
+.channel-text {
+  min-width: 0;
+}
+
+.channel-name {
+  font-size: clamp(32px, 8vw, 64px);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+  overflow-wrap: anywhere;
+}
+
+.channel-meta {
+  margin-top: 10px;
+  color: var(--fog);
+  font-size: 14px;
+}
+
+.channel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.channel-body .grid {
+  margin-top: 32px;
+  padding-top: 0;
+}
+
+.channel-body > .grid:first-child {
+  margin-top: 32px;
+}
+
+@media (min-width: 900px) {
+  .channel-avatar {
+    width: 96px;
+    height: 96px;
+  }
+}
+
+/* 17. Following, badges, tab dot ------------------------------------------ */
+
+.chan-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.chan-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid var(--steel);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.chan-chip:hover {
+  border-color: var(--steel-hi);
+  background: var(--slate);
+}
+
+.chan-chip[data-new="true"]::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  background: var(--pink);
+}
+
+.vcard-badge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 3px 8px;
+  background: var(--pink);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ay-tab {
+  position: relative;
+}
+
+.tab-dot {
+  position: absolute;
+  top: 10px;
+  left: calc(50% + 8px);
+  width: 8px;
+  height: 8px;
+  background: var(--pink);
+}
+
+@media (min-width: 900px) {
+  .tab-dot {
+    top: 13px;
+    left: 48px;
+  }
+}
+
+/* 18. Heartbeat loader ---------------------------------------------------- */
+
+.player-message.is-loading {
+  padding: 0;
+  background: #000;
+}
+
+.ecg {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+}
+
+.ecg-frame {
+  position: relative;
+  width: min(86%, 520px);
+  height: 100px;
+}
+
+/* the resting baseline the trace is drawn on */
+.ecg-frame::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--steel);
+}
+
+.ecg-trace {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  clip-path: inset(0 100% 0 0);
+  animation: ecg-sweep var(--ecg-duration) linear infinite;
+}
+
+.ecg-trace path {
+  fill: none;
+  stroke: var(--pink);
+  stroke-width: 2.5;
+  stroke-linejoin: miter;
+  vector-effect: non-scaling-stroke;
+}
+
+.ecg-head {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--pink);
+  animation: ecg-head var(--ecg-duration) linear infinite;
+}
+
+@keyframes ecg-sweep {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes ecg-head {
+  from {
+    left: 0;
+  }
+
+  to {
+    left: calc(100% - 2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ecg-trace {
+    clip-path: none;
+  }
+
+  .ecg-head {
+    display: none;
+  }
+}
+
+/* 19. Exam countdown ------------------------------------------------------- */
+
+.exam {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 36px;
+  padding-top: 12px;
+  border-top: 3px solid var(--paper);
+}
+
+.exam-days {
+  font-size: clamp(56px, 13vw, 112px);
+  font-weight: 800;
+  line-height: 0.85;
+  letter-spacing: -0.06em;
+  font-variant-numeric: tabular-nums;
+}
+
+.exam-label {
+  color: var(--fog);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* 20. Welcome and interests ----------------------------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  overflow-y: auto;
+  background: #000;
+  padding: calc(28px + env(safe-area-inset-top, 0px)) var(--gutter)
+    calc(32px + env(safe-area-inset-bottom, 0px));
+}
+
+.overlay-inner {
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.overlay-inner--wide {
+  max-width: 920px;
+}
+
+.overlay-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.welcome-form {
+  margin-top: 36px;
+}
+
+.welcome-form .ay-section-heading,
+.overlay-title {
+  margin-top: 0;
+  font-size: clamp(40px, 10vw, 72px);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+}
+
+.welcome-form .ay-form {
+  max-width: none;
+  margin-top: 28px;
+}
+
+.welcome-incognito {
+  width: 100%;
+  margin-top: 28px;
+}
+
+.pick-count {
+  margin-top: 14px;
+  color: var(--fog);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pick-group {
+  margin-top: 30px;
+  padding-top: 10px;
+  border-top: 3px solid var(--paper);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.pick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+@media (min-width: 640px) {
+  .pick-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.pick {
+  min-height: 58px;
+  padding: 10px 14px;
+  border: 1px solid var(--steel);
+  font-size: 16px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.pick:hover:not(:disabled) {
+  border-color: var(--steel-hi);
+  background: var(--slate);
+}
+
+.pick[aria-pressed="true"],
+.pick[aria-pressed="true"]:hover:not(:disabled) {
+  border-color: var(--pink);
+  background: var(--pink);
+  color: var(--ink);
+}
+
+.pick:disabled {
+  opacity: 0.35;
+}
+
+.overlay-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  margin-top: 28px;
+  padding: 14px 0 4px;
+  background: #000;
+  border-top: 1px solid var(--steel);
+}
+
+.toast {
+  z-index: 130;
 }
