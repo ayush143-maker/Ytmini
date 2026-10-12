@@ -9,6 +9,7 @@
     getPlaylists: null,
     addToPlaylist: null,
     copyLink: null,
+    openChannel: null,
     extraItems: null
   };
 
@@ -105,7 +106,10 @@
    * (thumbnail beside text, used for Up next and rows).
    * progress: { progress, duration } in seconds, from watch history.
    */
-  function createCard(video, { variant = "grid", progress = null } = {}) {
+  function createCard(
+    video,
+    { variant = "grid", progress = null, badge = "" } = {}
+  ) {
     const card = el("article", `vcard vcard--${variant}`);
     card.dataset.id = video.id;
 
@@ -145,6 +149,8 @@
       media.append(el("span", "vcard-duration", formatDuration(video.duration)));
     }
 
+    if (badge) media.append(el("span", "vcard-badge", badge));
+
     const ratio = progressRatio(progress, video.duration);
 
     if (ratio > 0) {
@@ -168,7 +174,13 @@
     body.append(heading);
 
     if (video.uploaderName) {
-      body.append(el("p", "vcard-channel", video.uploaderName));
+      const channel = el("button", "vcard-channel", video.uploaderName);
+
+      channel.type = "button";
+      channel.addEventListener("click", () =>
+        handlers.openChannel?.({ id: video.channelId, name: video.uploaderName })
+      );
+      body.append(channel);
     }
 
     const stats = [formatViews(video.views), video.uploaded].filter(Boolean);
@@ -268,7 +280,7 @@
     node.style.top = `${Math.round(top)}px`;
   }
 
-  function openMenu(anchor, video, { start = "root" } = {}) {
+  function openMenu(anchor, video, { start = "root", items: customItems = null } = {}) {
     // Pressing the same button again closes the menu.
     if (activeMenu?.anchor === anchor) {
       closeMenu({ restoreFocus: true });
@@ -300,6 +312,20 @@
 
     function showRoot() {
       node.replaceChildren();
+
+      // A plain list of actions (for example the Share menu).
+      if (customItems) {
+        for (const item of customItems) {
+          addItem(item.label, () => {
+            closeMenu({ restoreFocus: true });
+            item.run();
+          });
+        }
+
+        items()[0]?.focus({ preventScroll: true });
+        placeMenu(node, anchor);
+        return;
+      }
 
       addItem("Save to Watch Later", () => {
         closeMenu({ restoreFocus: true });
@@ -458,6 +484,7 @@
     createCard,
     skeletons,
     openMenu,
+    openActions: (anchor, items) => openMenu(anchor, null, { items }),
     closeMenu,
     format: Object.freeze({ duration: formatDuration, views: formatViews })
   });

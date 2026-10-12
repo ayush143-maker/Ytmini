@@ -8,8 +8,9 @@
   const SECTIONS = Object.freeze([
     { id: "playlists", label: "Playlists" },
     { id: "later", label: "Watch later" },
+    { id: "liked", label: "Liked" },
     { id: "history", label: "History" },
-    { id: "channels", label: "Channels" }
+    { id: "following", label: "Following" }
   ]);
 
   function el(tag, className, text) {
@@ -77,7 +78,13 @@
     body.append(title);
 
     if (video.uploaderName) {
-      body.append(el("p", "lib-channel", video.uploaderName));
+      const channel = el("button", "lib-channel", video.uploaderName);
+
+      channel.type = "button";
+      channel.addEventListener("click", () =>
+        ui.openChannel({ id: video.channelId, name: video.uploaderName })
+      );
+      body.append(channel);
     }
 
     const duration = Number(progress?.duration) || video.duration || 0;
@@ -361,6 +368,43 @@
     body.append(list);
   }
 
+  async function renderLiked(body) {
+    const ui = UI();
+    const [items, personal] = await Promise.all([lib().getLikes(), ui.getPersonal()]);
+
+    if (!items.length) {
+      body.append(empty("Nothing liked yet."));
+      return;
+    }
+
+    const list = el("div", "lib-list");
+
+    for (const item of items) {
+      list.append(
+        videoRow(toVideo(item, "liked"), {
+          progress: personal.map.get(item.video_id) || null,
+          actions: [
+            {
+              label: "Unlike",
+              danger: true,
+              run: async () => {
+                try {
+                  await lib().unlikeVideo(item.video_id);
+                  personal.likes.delete(item.video_id);
+                  render();
+                } catch (error) {
+                  ui.notify(ui.friendlyError(error, "Could not remove this like."));
+                }
+              }
+            }
+          ]
+        })
+      );
+    }
+
+    body.append(list);
+  }
+
   async function renderHistory(body) {
     const ui = UI();
     const items = await lib().getHistory({ limit: 100 });
@@ -416,31 +460,85 @@
     body.append(list);
   }
 
-  async function renderChannels(body) {
+  async function renderFollowing(body) {
     const ui = UI();
-    const prefs = await lib().getChannelPrefs();
+    const personal = await ui.getPersonal();
 
-    if (!prefs.length) {
-      body.append(empty("No channels."));
+    const follows = personal.prefs.filter((pref) => pref.kind === "follow");
+    const hidden = personal.prefs.filter((pref) => pref.kind === "block");
+
+    if (!follows.length && !hidden.length) {
+      body.append(empty("Not following anyone."));
       return;
     }
 
-    const groups = [
-      { kind: "follow", title: "Following", action: "Unfollow" },
-      { kind: "block", title: "Hidden", action: "Unhide" }
-    ];
+    if (follows.length) {
+      const chips = el("div", "chan-row");
+      const byKey = new Map();
 
-    for (const group of groups) {
-      const rows = prefs.filter((pref) => pref.kind === group.kind);
+      for (const pref of follows) {
+        const chip = el("button", "chan-chip", pref.channel_name);
 
-      if (!rows.length) continue;
+        chip.type = "button";
+        chip.addEventListener("click", () => {
+          ui.openChannel({
+            id: window.AyuTubeChannel.isChannelId(pref.channel_key) ? pref.channel_key : "",
+            name: pref.channel_name
+          });
+        });
+
+        byKey.set(pref.channel_key, chip);
+        chips.append(chip);
+      }
+
+      body.append(chips);
 
       const head = el("div", "section-head");
-      head.append(el("h2", "", group.title));
+      head.append(el("h2", "", "Latest"));
+
+      const slot = el("div");
+
+      slot.append(Cards().skeletons(3, "grid"));
+      body.append(head, slot);
+
+      const data = await window.AyuTubeFollowing.load();
+
+      for (const channel of data.channels) {
+        const chip = byKey.get(channel.pref.channel_key);
+
+        if (chip && ui.isNewSince(channel.pref.channel_key, channel.latestAt)) {
+          chip.dataset.new = "true";
+        }
+      }
+
+      slot.replaceChildren();
+
+      if (!data.videos.length) {
+        slot.append(empty("No videos right now."));
+      } else {
+        const grid = el("div", "grid");
+
+        for (const { video, key } of data.videos) {
+          grid.append(
+            Cards().createCard(video, {
+              variant: "grid",
+              progress: personal.map.get(video.id) || null,
+              badge: ui.isNewSince(key, video.uploadedAt) ? "New" : ""
+            })
+          );
+        }
+
+        slot.append(grid);
+      }
+    }
+
+    if (hidden.length) {
+      const head = el("div", "section-head");
+      head.append(el("h2", "", "Hidden"));
 
       const list = el("div", "lib-list lib-list--plain");
 
-      for (const pref of rows) {
+      for (const pref of hidden) {
         const row = el("div", "lib-row lib-row--text");
         const text = el("div", "lib-body");
 
@@ -449,7 +547,7 @@
         const actions = el("div", "lib-actions");
 
         actions.append(
-          ui.makeButton(group.action, "ay-action", async () => {
+          ui.makeButton("Unhide", "ay-action", async () => {
             try {
               await lib().removeChannelPref(pref.channel_key);
               ui.invalidatePersonal();
@@ -472,8 +570,9 @@
   const RENDERERS = Object.freeze({
     playlists: renderPlaylists,
     later: renderLater,
+    liked: renderLiked,
     history: renderHistory,
-    channels: renderChannels
+    following: renderFollowing
   });
 
   // ---------------------------------------------------------------------------

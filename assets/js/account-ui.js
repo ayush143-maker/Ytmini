@@ -48,6 +48,15 @@
         }
       }),
       switchRow({
+        title: "Pause history",
+        copy: "Watched videos and searches are not saved.",
+        checked: store.get("ayutube.noHistory", false) === true,
+        onChange: (on) => {
+          store.set("ayutube.noHistory", on);
+          notify(on ? "History is paused." : "History is on.");
+        }
+      }),
+      switchRow({
         title: "Autoplay next video",
         copy: "Play the next video when one ends.",
         checked: store.get("ayutube.autoplay", true) !== false,
@@ -61,7 +70,121 @@
     container.append(panel);
   }
 
-  function renderForm(container, notice = "") {
+  /** Exam name and date for the countdown on the home page. */
+  async function renderExam(container) {
+    const { element, makeButton, state, notify, getPersonal, invalidatePersonal } = UI();
+
+    if (!state.user) return;
+
+    const personal = await getPersonal();
+    const profile = personal.profile;
+
+    const panel = element("section", "ay-panel");
+    panel.setAttribute("aria-label", "Exam countdown");
+    panel.append(element("h2", "ay-panel-title", "Exam countdown"));
+
+    const form = element("form", "ay-form exam-form");
+
+    const nameLabel = element("label", "ay-field", "Exam");
+    const nameInput = element("input");
+
+    nameInput.name = "exam";
+    nameInput.type = "text";
+    nameInput.maxLength = 60;
+    nameInput.placeholder = "For example JEE Main";
+    nameInput.value = profile.exam_name || "";
+    nameLabel.append(nameInput);
+
+    const dateLabel = element("label", "ay-field", "Date");
+    const dateInput = element("input");
+
+    dateInput.name = "date";
+    dateInput.type = "date";
+    dateInput.value = profile.exam_date || "";
+    dateLabel.append(dateInput);
+
+    const save = element("button", "ay-action ay-action-primary", "Save");
+    save.type = "submit";
+
+    const clear = makeButton("Clear", "ay-action", async () => {
+      try {
+        await window.AyuTubeLibrary.saveProfile({ exam_name: "", exam_date: null });
+        invalidatePersonal();
+        state.feedKey = "";
+        nameInput.value = "";
+        dateInput.value = "";
+        notify("Countdown removed.");
+      } catch (error) {
+        notify(error.message || "Could not save.");
+      }
+    });
+
+    const actions = element("div", "ay-inline");
+    actions.style.marginTop = "4px";
+    actions.append(save, clear);
+
+    form.append(nameLabel, dateLabel, actions);
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      save.disabled = true;
+
+      try {
+        await window.AyuTubeLibrary.saveProfile({
+          exam_name: nameInput.value,
+          exam_date: dateInput.value || null
+        });
+
+        invalidatePersonal();
+        state.feedKey = "";
+        notify("Saved.");
+      } catch (error) {
+        notify(error.message || "Could not save.");
+      } finally {
+        save.disabled = false;
+      }
+    });
+
+    panel.append(form);
+    container.append(panel);
+  }
+
+  /**
+   * The sign-in / sign-up form. Used on the Account tab and on the welcome
+   * screen. hooks: onSignedIn(user), rerender() when the mode is switched.
+   */
+  /** The chosen interests, with a way to change them. */
+  async function renderInterests(container) {
+    const { element, makeButton, state, getPersonal, ensureCategories } = UI();
+
+    if (!state.user) return;
+
+    const personal = await getPersonal();
+    const module = await ensureCategories();
+
+    const labels = personal.profile.interests
+      .map((id) => module.getById(id)?.label)
+      .filter(Boolean);
+
+    const panel = element("section", "ay-panel");
+    panel.setAttribute("aria-label", "Interests");
+    panel.append(
+      element("h2", "ay-panel-title", "Interests"),
+      element("p", "ay-panel-copy", labels.length ? labels.join(", ") : "Default feed")
+    );
+
+    const actions = element("div", "ay-inline");
+
+    actions.append(
+      makeButton("Change", "ay-action", () =>
+        window.AyuTubeOnboarding?.open?.({ edit: true })
+      )
+    );
+    panel.append(actions);
+    container.append(panel);
+  }
+
+  function renderForm(container, notice = "", hooks = {}) {
     const { element, makeButton, setNotice, state, ensureAuthModules } = UI();
 
     container.replaceChildren();
@@ -98,6 +221,7 @@
     emailInput.autocomplete = "email";
     emailInput.maxLength = 254;
     emailInput.placeholder = "you@example.com";
+    if (hooks.email) emailInput.value = hooks.email;
     emailLabel.append(emailInput);
 
     const passwordLabel = element("label", "ay-field", "Password");
@@ -124,7 +248,9 @@
       "ay-action",
       () => {
         state.authMode = isSignup ? "signin" : "signup";
-        render();
+
+        if (hooks.rerender) hooks.rerender();
+        else render();
       }
     );
 
@@ -152,11 +278,13 @@
           });
 
           if (result.needsEmailConfirmation) {
-            renderForm(
-              container,
-              "Confirm your email, then sign in."
-            );
+            const sentTo = emailInput.value.trim();
+
             state.authMode = "signin";
+            renderForm(container, `Confirmation mail sent to ${sentTo}.`, {
+              ...hooks,
+              email: sentTo
+            });
             return;
           }
         } else {
@@ -167,8 +295,13 @@
         }
 
         state.user = result.user || null;
-        UI().invalidatePersonal();
-        render();
+
+        if (hooks.onSignedIn) {
+          await hooks.onSignedIn(result.user);
+        } else {
+          await UI().afterSignIn();
+          render();
+        }
       } catch (error) {
         setNotice(
           container,
@@ -222,7 +355,7 @@
           try {
             await window.AyuTubeAuth.signOut();
             state.user = null;
-            UI().invalidatePersonal();
+            await UI().afterSignOut();
             render();
           } catch (error) {
             setNotice(container, error.message || "Could not sign out.", "error");
@@ -233,6 +366,8 @@
       panel.append(actions);
       container.append(panel);
       renderPreferences(container);
+      await renderInterests(container);
+      await renderExam(container);
     } catch {
       container.replaceChildren();
 
@@ -244,5 +379,5 @@
     }
   }
 
-  window.AyuTubeAccountUI = Object.freeze({ render });
+  window.AyuTubeAccountUI = Object.freeze({ render, renderForm });
 })();

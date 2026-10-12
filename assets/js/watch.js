@@ -181,6 +181,20 @@
 
     box.replaceChildren();
 
+    const like = ui.makeButton("Like", "ay-action");
+
+    like.setAttribute("aria-pressed", String(ui.isLiked(video.id)));
+    like.addEventListener("click", async () => {
+      like.disabled = true;
+
+      const next = await ui.toggleLike(video);
+
+      like.disabled = false;
+
+      if (next !== null) like.setAttribute("aria-pressed", String(next));
+    });
+    box.append(like);
+
     box.append(
       ui.makeButton("Save", "ay-action", () => ui.saveToWatchLater(video))
     );
@@ -194,9 +208,34 @@
     });
     box.append(playlist);
 
-    box.append(
-      ui.makeButton("Share", "ay-action", () => ui.shareVideo(video))
-    );
+    const share = ui.makeButton("Share", "ay-action");
+
+    share.setAttribute("aria-haspopup", "menu");
+    share.setAttribute("aria-expanded", "false");
+    share.addEventListener("click", () => {
+      const player = getPlayer();
+      const seconds =
+        player?.canTrackTime?.() ? Math.floor(player.getCurrentTime()) : 0;
+
+      const items = [{ label: "Copy link", run: () => ui.copyLink(video) }];
+
+      if (seconds >= 5) {
+        items.push({
+          label: `Copy link at ${Cards().format.duration(seconds)}`,
+          run: () => ui.copyLink(video, seconds)
+        });
+      }
+
+      if (navigator.share) {
+        items.push({
+          label: "Share\u2026",
+          run: () => ui.shareVideo(video, seconds >= 5 ? seconds : 0)
+        });
+      }
+
+      Cards().openActions(share, items);
+    });
+    box.append(share);
 
     const speed = ui.makeButton("", "ay-action");
     const label = () => `${getPlayer()?.getRate?.() ?? 1}\u00D7`;
@@ -455,6 +494,12 @@
   }
 
   // ---------------------------------------------------------------------------
+
+  $("#player-channel")?.addEventListener("click", () => {
+    if (!current) return;
+
+    UI().openChannel({ id: current.channelId, name: current.uploaderName });
+  });
 
   getPlayer()?.on?.("ended", onEnded);
 

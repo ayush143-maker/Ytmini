@@ -8,6 +8,7 @@
     historyIntervalMs: 15000,
     historyMinimumProgressDelta: 8,
     youtubeReadyTimeoutMs: 10000,
+    streamLoadTimeoutMs: 10000,
     validIdPattern: /^[A-Za-z0-9_-]{6,20}$/
   });
 
@@ -115,7 +116,100 @@
     return iframe;
   }
 
+  // ---------------------------------------------------------------------------
+  // Loading: a heartbeat line sweeps left to right. Playback starts only when
+  // the video is ready AND the line has reached the right edge.
+  // ---------------------------------------------------------------------------
+
+  let gate = null; // { token, ready, start }
+
+  const prefersReducedMotion = () =>
+    Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+
+  function buildEcg() {
+    const ns = "http://www.w3.org/2000/svg";
+
+    // One heartbeat: flat, P wave, Q dip, R spike, S dip, T wave, flat.
+    const beat = (x) =>
+      `H${x + 70}Q${x + 82} 52 ${x + 94} 60H${x + 140}L${x + 152} 68L${x + 166} 10` +
+      `L${x + 182} 106L${x + 194} 60H${x + 232}Q${x + 256} 38 ${x + 282} 60H${x + 300}`;
+
+    const wrap = document.createElement("div");
+    wrap.className = "ecg";
+
+    const frame = document.createElement("div");
+    frame.className = "ecg-frame";
+
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 600 120");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    svg.classList.add("ecg-trace");
+
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("d", `M0 60${beat(0)}${beat(300)}`);
+    svg.append(path);
+
+    const head = document.createElement("i");
+    head.className = "ecg-head";
+
+    const label = document.createElement("span");
+    label.className = "sr-only";
+    label.textContent = "Loading video";
+
+    // The trace restarts at every iteration; each restart is a "reached the
+    // right side" moment, which is when a ready video may start.
+    svg.addEventListener("animationiteration", () => {
+      if (gate?.ready) reveal();
+    });
+
+    frame.append(svg, head);
+    wrap.append(frame, label);
+
+    return wrap;
+  }
+
+  function showLoading(token) {
+    // Keep the sweep running if this play request is already showing it.
+    if (gate && gate.token === token && !dom.message.hidden) return;
+
+    gate = { token, ready: false, start: null };
+
+    dom.message.className = "player-message is-loading";
+    dom.message.replaceChildren(buildEcg());
+    dom.message.hidden = false;
+    dom.message.setAttribute("role", "status");
+  }
+
+  function reveal() {
+    if (!gate) return;
+
+    const { start } = gate;
+
+    hideMessage();
+
+    try {
+      start?.();
+    } catch {
+      // The player controls remain available if autoplay is blocked.
+    }
+  }
+
+  /** The video can play. `start` runs once the line reaches the right side. */
+  function whenReady(token, start) {
+    if (!gate || gate.token !== token) return;
+
+    gate.ready = true;
+    gate.start = start || null;
+
+    if (prefersReducedMotion()) reveal();
+  }
+
   function showMessage(text, isError = false) {
+    gate = null;
+
+    dom.message.className = "player-message";
     dom.message.replaceChildren();
     dom.message.textContent = text;
     dom.message.hidden = false;
@@ -126,8 +220,11 @@
   }
 
   function hideMessage() {
+    gate = null;
+
+    dom.message.className = "player-message";
     dom.message.hidden = true;
-    dom.message.textContent = "";
+    dom.message.replaceChildren();
   }
 
   function getVideoId(item) {
@@ -205,12 +302,12 @@
     return `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
   }
 
-  function youtubeEmbedUrl(id, start = 0) {
+  function youtubeEmbedUrl(id, start = 0, autoplay = true) {
     const url = new URL(
       `https://www.youtube.com/embed/${encodeURIComponent(id)}`
     );
 
-    url.searchParams.set("autoplay", "1");
+    if (autoplay) url.searchParams.set("autoplay", "1");
     url.searchParams.set("playsinline", "1");
     url.searchParams.set("rel", "0");
     url.searchParams.set("enablejsapi", "1");
@@ -447,8 +544,19 @@
       : null;
   }
 
+  function historyPaused() {
+    try {
+      return localStorage.getItem("ayutube.noHistory") === "true";
+    } catch {
+      return false;
+    }
+  }
+
   function queueHistory(force = false) {
     if (!activeItem) return;
+
+    // "Pause history" is on: watch progress is not saved.
+    if (historyPaused()) return;
 
     const progress = currentProgress();
     const now = Date.now();
@@ -666,24 +774,43 @@
     iframe.removeAttribute("src");
 
     bindDirectVideoEvents(item, token);
-    hideMessage();
 
-    try {
-      await dom.video.play();
-    } catch (error) {
-      if (!isCurrent(token)) return;
+    // Wait until the stream is usable. A load error is handled by the
+    // video's onerror handler (it switches to the YouTube player).
+    const outcome = await new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => finish(() => reject(new Error("The stream took too long to load."))),
+        CONFIG.streamLoadTimeoutMs
+      );
 
-      // Browser autoplay restrictions should not be treated as stream failure.
-      if (
-        error?.name === "NotAllowedError" ||
-        error?.name === "AbortError"
-      ) {
-        hideMessage();
-        return;
+      function finish(done) {
+        clearTimeout(timer);
+        dom.video.removeEventListener("loadedmetadata", onReady);
+        dom.video.removeEventListener("error", onError);
+        done();
       }
 
-      throw error;
+      function onReady() {
+        finish(() => resolve("ready"));
+      }
+
+      function onError() {
+        finish(() => resolve("error"));
+      }
+
+      dom.video.addEventListener("loadedmetadata", onReady, { once: true });
+      dom.video.addEventListener("error", onError, { once: true });
+    });
+
+    if (outcome !== "ready" || !isCurrent(token) || activeMode !== "direct") {
+      return;
     }
+
+    whenReady(token, () => {
+      dom.video.play()?.catch?.(() => {
+        // Autoplay restrictions are not a stream failure; controls remain.
+      });
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -836,12 +963,12 @@
       iframe.allow =
         "autoplay; encrypted-media; picture-in-picture; fullscreen";
 
-      showMessage("Loading…");
+      showLoading(token);
 
       // When YT.Player receives an existing <iframe>, it attaches to that
       // iframe's current src (videoId/playerVars are ignored). The src must
       // therefore already be the embed URL with enablejsapi=1.
-      iframe.src = youtubeEmbedUrl(item.id, activeStart);
+      iframe.src = youtubeEmbedUrl(item.id, activeStart, false);
 
       let playerReady = false;
 
@@ -867,19 +994,14 @@
               return;
             }
 
-            hideMessage();
-
             try {
               event.target.setPlaybackRate(activeRate);
             } catch {
               // Not every video supports every speed.
             }
 
-            try {
-              event.target.playVideo();
-            } catch {
-              // The player controls remain available when autoplay is blocked.
-            }
+            // Start once the heartbeat line has reached the right side.
+            whenReady(token, () => event.target.playVideo());
           },
           onStateChange: (event) => {
             handleYouTubeState(event, token);
@@ -919,8 +1041,14 @@
       iframe.src = youtubeEmbedUrl(item.id, activeStart);
 
       // This path is used only if the IFrame API itself is unavailable.
-      // The embed can play, but reliable playback-time events are unavailable.
-      hideMessage();
+      // The embed autoplays and cannot report playback time; the heartbeat
+      // line covers it until the frame has loaded and the line has finished.
+      showLoading(token);
+
+      const ready = () => whenReady(token, null);
+
+      iframe.addEventListener("load", ready, { once: true });
+      setTimeout(ready, CONFIG.youtubeReadyTimeoutMs);
     } catch {
       showMessage("This video can't be played here.", true);
       showWatchLink();
@@ -951,7 +1079,7 @@
     const iframe = getIframe();
     iframe.hidden = false;
 
-    showMessage("Loading…");
+    showLoading(token);
 
     await attachYouTubePlayer(item, token);
   }
@@ -999,7 +1127,7 @@
     dom.watchLink.href = youtubeWatchUrl(item.id);
     dom.watchLink.hidden = true;
 
-    showMessage("Loading…");
+    showLoading(token);
 
     try {
       dom.panel.scrollIntoView({

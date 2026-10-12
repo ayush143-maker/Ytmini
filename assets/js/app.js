@@ -11,7 +11,7 @@
 
   const state = {
     view: "explore", // explore | library | account
-    pane: "browse", // browse | watch (only meaningful inside explore)
+    pane: "browse", // browse | watch | channel (only meaningful inside explore)
     browse: "feed", // feed | results
     category: null,
     feedKey: "",
@@ -135,6 +135,10 @@
         : 0,
       views: Number.isFinite(views) && views >= 0 ? Math.floor(views) : null,
       uploaded: typeof item?.uploaded === "string" ? item.uploaded : "",
+      uploadedAt:
+        Number.isFinite(Number(item?.uploadedAt)) && Number(item.uploadedAt) > 0
+          ? Number(item.uploadedAt)
+          : null,
       channelId: typeof item?.channelId === "string" ? item.channelId : "",
       short: Boolean(item?.short),
       url
@@ -242,7 +246,21 @@
 
   let personalPromise = null;
   let personalAt = 0;
-  let personalData = { user: null, history: [], map: new Map(), prefs: [] };
+  const emptyProfile = () => ({
+    interests: [],
+    exam_name: null,
+    exam_date: null,
+    onboarded_at: null
+  });
+
+  let personalData = {
+    user: null,
+    history: [],
+    map: new Map(),
+    prefs: [],
+    likes: new Set(),
+    profile: emptyProfile()
+  };
 
   function getPersonal(force = false) {
     if (!force && personalPromise && Date.now() - personalAt < 60000) {
@@ -252,7 +270,14 @@
     personalAt = Date.now();
 
     personalPromise = (async () => {
-      const data = { user: null, history: [], map: new Map(), prefs: [] };
+      const data = {
+        user: null,
+        history: [],
+        map: new Map(),
+        prefs: [],
+        likes: new Set(),
+        profile: emptyProfile()
+      };
 
       try {
         await ensureAuthModules();
@@ -263,11 +288,20 @@
           data.user = user;
           state.user = user;
 
-          const history = await window.AyuTubeLibrary.getHistory({
-            limit: 200
-          });
+          const lib = window.AyuTubeLibrary;
+          const call = (name, ...args) =>
+            typeof lib[name] === "function" ? lib[name](...args) : Promise.reject(new Error("n/a"));
 
-          data.history = Array.isArray(history) ? history : [];
+          const [history, prefs, profile, likes] = await Promise.allSettled([
+            call("getHistory", { limit: 200 }),
+            call("getChannelPrefs"),
+            call("getProfile"),
+            call("getLikes", { limit: 500 })
+          ]);
+
+          if (history.status === "fulfilled" && Array.isArray(history.value)) {
+            data.history = history.value;
+          }
 
           for (const row of data.history) {
             data.map.set(row.video_id, {
@@ -277,13 +311,16 @@
             });
           }
 
-          if (typeof window.AyuTubeLibrary.getChannelPrefs === "function") {
-            try {
-              const prefs = await window.AyuTubeLibrary.getChannelPrefs();
-              data.prefs = Array.isArray(prefs) ? prefs : [];
-            } catch {
-              data.prefs = [];
-            }
+          if (prefs.status === "fulfilled" && Array.isArray(prefs.value)) {
+            data.prefs = prefs.value;
+          }
+
+          if (profile.status === "fulfilled" && profile.value) {
+            data.profile = { ...emptyProfile(), ...profile.value };
+          }
+
+          if (likes.status === "fulfilled" && Array.isArray(likes.value)) {
+            data.likes = new Set(likes.value.map((row) => row.video_id));
           }
         }
       } catch {
@@ -348,27 +385,118 @@
     renderCategories().catch(() => {});
   }
 
+  /**
+   * The categories shown in the strip and feed: the person's chosen interests,
+   * or the original five when none were chosen (guests, incognito, skipped).
+   */
+  function visibleCategories(module) {
+    const chosen = (personalData.profile.interests || [])
+      .map((id) => module.getById(id))
+      .filter(Boolean);
+
+    let list = chosen.length ? chosen : module.getDefaults();
+
+    if (isStudy()) {
+      const focused = list.filter((category) => !ENTERTAINMENT.has(category.id));
+
+      list = focused.length
+        ? focused
+        : module.getDefaults().filter((category) => !ENTERTAINMENT.has(category.id));
+    }
+
+    return list;
+  }
+
+  /** Called after signing in: reload everything that depends on the account. */
+  async function afterSignIn() {
+    invalidatePersonal();
+    await getPersonal(true);
+
+    state.feedKey = "";
+    state.category = null;
+
+    await renderCategories().catch(() => {});
+
+    if (state.view === "explore" && state.pane === "browse" && state.browse === "feed") {
+      showFeed();
+    }
+
+    window.AyuTubeFollowing?.refreshBadge?.();
+    window.AyuTubeOnboarding?.maybeRun?.();
+  }
+
+  async function afterSignOut() {
+    invalidatePersonal();
+    await getPersonal(true);
+
+    state.feedKey = "";
+    state.category = null;
+    setLibraryDot(false);
+
+    await renderCategories().catch(() => {});
+  }
+
+  /** Called after interests change: rebuild the strip and the feed. */
+  async function applyInterests() {
+    invalidatePersonal();
+    await getPersonal(true);
+
+    state.feedKey = "";
+    state.category = null;
+
+    const input = $("#search-input");
+    if (input) input.placeholder = "Search videos";
+
+    await renderCategories().catch(() => {});
+
+    if (state.view === "explore" && state.pane === "browse" && state.browse === "feed") {
+      showFeed();
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Navigation (bottom bar on phones, side rail on desktop)
   // ---------------------------------------------------------------------------
 
+  // Lucide icons (ISC licence): compass, library, circle-user.
   const ICONS = Object.freeze({
-    explore:
-      "M3.5 3.5h7v7h-7zM13.5 3.5h7v7h-7zM3.5 13.5h7v7h-7zM13.5 13.5h7v7h-7z",
-    library: "M6 3.5h12v17l-6-4.2-6 4.2z",
-    account: "M8.5 3.5h7v7h-7zM4 20.5v-4.5h16v4.5z"
+    explore: [
+      {
+        tag: "path",
+        d: "m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"
+      },
+      { tag: "circle", cx: 12, cy: 12, r: 10 }
+    ],
+    library: [
+      { tag: "path", d: "m16 6 4 14" },
+      { tag: "path", d: "M12 6v14" },
+      { tag: "path", d: "M8 8v12" },
+      { tag: "path", d: "M4 4v16" }
+    ],
+    account: [
+      { tag: "circle", cx: 12, cy: 12, r: 10 },
+      { tag: "circle", cx: 12, cy: 10, r: 3 },
+      { tag: "path", d: "M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662" }
+    ]
   });
 
-  function iconSvg(pathData) {
+  function iconSvg(shapes) {
     const ns = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(ns, "svg");
-    const path = document.createElementNS(ns, "path");
 
     svg.setAttribute("viewBox", "0 0 24 24");
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("focusable", "false");
-    path.setAttribute("d", pathData);
-    svg.append(path);
+
+    for (const { tag, ...attributes } of shapes) {
+      const shape = document.createElementNS(ns, tag);
+
+      for (const [name, value] of Object.entries(attributes)) {
+        shape.setAttribute(name, String(value));
+      }
+
+      svg.append(shape);
+    }
 
     return svg;
   }
@@ -392,6 +520,14 @@
       tab.setAttribute("aria-current", item.id === state.view ? "page" : "false");
       tab.append(iconSvg(ICONS[item.id]), element("span", "", item.label));
 
+      if (item.id === "library") {
+        const dot = element("i", "tab-dot");
+
+        dot.hidden = true;
+        dot.setAttribute("aria-hidden", "true");
+        tab.append(dot);
+      }
+
       tab.addEventListener("click", () => onTab(item.id));
       nav.append(tab);
     }
@@ -402,6 +538,8 @@
       // Tapping Explore again means "take me home".
       if (state.pane === "watch") {
         leaveWatch();
+      } else if (state.pane === "channel") {
+        leaveChannel();
       } else if (state.browse === "results") {
         showFeed();
       }
@@ -454,7 +592,8 @@
   function applyLayout() {
     const explore = state.view === "explore";
     const watching = explore && state.pane === "watch";
-    const browsing = explore && !watching;
+    const onChannel = explore && state.pane === "channel";
+    const browsing = explore && !watching && !onChannel;
 
     const toggle = (selector, visible) => {
       const node = $(selector);
@@ -467,6 +606,7 @@
     toggle("#feed", browsing && state.browse === "feed");
     toggle("#results", browsing && state.browse === "results");
     toggle("#player-panel", watching);
+    toggle("#channel-pane", onChannel);
     toggle("#ayutube-library-view", state.view === "library");
     toggle("#ayutube-account-view", state.view === "account");
 
@@ -487,14 +627,49 @@
     updateNowPlaying();
   }
 
+  // The screen a watch or channel page was opened from, so Back returns there.
+  let originView = null;
+
+  function rememberOrigin() {
+    if (state.view !== "explore") originView = state.view;
+  }
+
+  /** Leave the watch/channel page and return to the screen it came from. */
+  function finishLeave() {
+    state.pane = "browse";
+
+    const origin = originView;
+
+    originView = null;
+
+    if (origin) state.view = origin;
+
+    applyLayout();
+
+    if (origin === "library") window.AyuTubeLibraryUI?.render?.();
+    if (origin === "account") window.AyuTubeAccountUI?.render?.();
+  }
+
   function setView(view) {
     if (!["explore", "library", "account"].includes(view)) return;
 
+    originView = null;
     state.view = view;
     applyLayout();
 
     if (view === "library") window.AyuTubeLibraryUI?.render?.();
     if (view === "account") window.AyuTubeAccountUI?.render?.();
+
+    // Something that changes the feed (exam date, interests, study mode)
+    // happened elsewhere: refresh it on the way back.
+    if (
+      view === "explore" &&
+      state.pane === "browse" &&
+      state.browse === "feed" &&
+      state.feedKey === ""
+    ) {
+      showFeed();
+    }
 
     window.scrollTo({ top: 0 });
   }
@@ -504,6 +679,7 @@
    * `entry: true` marks a page opened straight from a shared link.
    */
   function showWatch(video, { push = true, entry = false } = {}) {
+    rememberOrigin();
     state.view = "explore";
     state.pane = "watch";
 
@@ -540,8 +716,7 @@
       if (current.entry) {
         // Opened directly from a shared link: there is no earlier page of ours.
         history.replaceState({}, "", location.pathname);
-        state.pane = "browse";
-        applyLayout();
+        finishLeave();
       } else {
         history.back(); // popstate applies the layout
       }
@@ -549,12 +724,29 @@
       return;
     }
 
-    state.pane = "browse";
-    applyLayout();
+    finishLeave();
   }
 
   function onPopState(event) {
     const entry = event.state;
+
+    if (entry?.ayu === "channel") {
+      state.view = "explore";
+      state.pane = "channel";
+
+      const open = window.AyuTubeChannel?.current?.();
+
+      if (open && open.id === (entry.id || "") && open.name === (entry.name || "")) {
+        applyLayout();
+      } else {
+        window.AyuTubeChannel?.open?.(
+          { id: entry.id || "", name: entry.name || "" },
+          { fromHistory: true }
+        );
+      }
+
+      return;
+    }
 
     if (entry?.ayu === "watch" && entry.id) {
       state.view = "explore";
@@ -579,8 +771,97 @@
       return;
     }
 
-    state.pane = "browse";
+    finishLeave();
+  }
+
+  /** Show a channel page. Called by channel.js before it loads the videos. */
+  function showChannel(channel, { push = true, entry = false } = {}) {
+    rememberOrigin();
+    state.view = "explore";
+    state.pane = "channel";
+
+    if (push || entry) {
+      const record = {
+        ayu: "channel",
+        id: channel.id || "",
+        name: channel.name || ""
+      };
+
+      const url = channel.id ? `/?c=${encodeURIComponent(channel.id)}` : "/";
+      const current = history.state;
+
+      if (entry) {
+        history.replaceState({ ...record, entry: true }, "", url);
+      } else if (
+        current?.ayu === "channel" &&
+        current.id === record.id &&
+        current.name === record.name
+      ) {
+        history.replaceState({ ...record, entry: Boolean(current.entry) }, "", url);
+      } else {
+        history.pushState(record, "", url);
+      }
+    }
+
     applyLayout();
+    window.scrollTo({ top: 0 });
+  }
+
+  /** Leave the channel page and return to whatever opened it. */
+  function leaveChannel() {
+    const current = history.state;
+
+    window.AyuTubeChannel?.close?.();
+
+    if (current?.ayu === "channel") {
+      if (current.entry) {
+        history.replaceState({}, "", location.pathname);
+        finishLeave();
+      } else {
+        history.back(); // popstate applies the layout
+      }
+
+      return;
+    }
+
+    finishLeave();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Which channel videos were already seen (drives the "New" marker)
+  // ---------------------------------------------------------------------------
+
+  const SEEN_KEY = "ayutube.seen";
+
+  function seenMap() {
+    const value = store.get(SEEN_KEY, {});
+
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : {};
+  }
+
+  function markChannelSeen(key) {
+    if (!key) return;
+
+    const map = seenMap();
+
+    map[key] = Date.now();
+    store.set(SEEN_KEY, map);
+
+    window.AyuTubeFollowing?.recompute?.();
+  }
+
+  function setLibraryDot(on) {
+    const dot = $('.ay-tab[data-view="library"] .tab-dot');
+
+    if (dot) dot.hidden = !on;
+  }
+
+  function isNewSince(key, uploadedAt) {
+    const seenAt = seenMap()[key];
+
+    return Boolean(seenAt && uploadedAt && uploadedAt > seenAt);
   }
 
   // ---------------------------------------------------------------------------
@@ -677,9 +958,14 @@
     all.setAttribute("aria-pressed", String(!state.category));
     list.append(all);
 
-    for (const category of module.getAll()) {
-      if (isStudy() && ENTERTAINMENT.has(category.id)) continue;
+    const visible = visibleCategories(module);
 
+    if (state.category && !visible.some((item) => item.id === state.category)) {
+      state.category = null;
+      all.setAttribute("aria-pressed", "true");
+    }
+
+    for (const category of visible) {
       const button = makeButton(category.label, "ay-chip", () =>
         selectCategory(category.id)
       );
@@ -750,7 +1036,7 @@
     setStatus("");
     applyLayout();
 
-    const key = `${state.category || "all"}|${isStudy() ? "study" : "all"}`;
+    const key = `${state.category || "all"}|${isStudy() ? "study" : "all"}|${personalData.profile.interests.join(",")}`;
     const feed = $("#feed");
 
     if (feed && (state.feedKey !== key || !feed.childElementCount)) {
@@ -1012,9 +1298,35 @@
     }
   }
 
-  async function copyLink(video) {
-    const ok = await copyText(videoUrl(video));
+  async function copyLink(video, seconds = 0) {
+    const ok = await copyText(videoUrl(video, seconds));
     notify(ok ? "Link copied." : "Could not copy. Copy the address manually.");
+  }
+
+  const isLiked = (videoId) => personalData.likes.has(videoId);
+
+  /** Like or unlike a video. Returns the new state, or null on failure. */
+  async function toggleLike(video) {
+    try {
+      await ensureAuthModules();
+
+      const lib = window.AyuTubeLibrary;
+
+      if (personalData.likes.has(video.id)) {
+        await lib.unlikeVideo(video.id);
+        personalData.likes.delete(video.id);
+        notify("Like removed.");
+        return false;
+      }
+
+      await lib.likeVideo(video);
+      personalData.likes.add(video.id);
+      notify("Liked.");
+      return true;
+    } catch (error) {
+      notify(friendlyError(error, "Could not update your like."));
+      return null;
+    }
   }
 
   async function shareVideo(video, seconds = 0) {
@@ -1082,6 +1394,8 @@
           channel_name: video.uploaderName,
           kind
         });
+        if (kind === "follow") markChannelSeen(key);
+
         notify(
           kind === "follow"
             ? `Following ${video.uploaderName}.`
@@ -1130,16 +1444,28 @@
     toggleChannel,
     isStudy,
     setStudy,
+    visibleCategories,
+    afterSignIn,
+    afterSignOut,
+    applyInterests,
     ENTERTAINMENT,
     setView,
     showWatch,
     leaveWatch,
+    showChannel,
+    leaveChannel,
+    openChannel: (channel, options) => window.AyuTubeChannel?.open?.(channel, options),
+    markChannelSeen,
+    isNewSince,
+    setLibraryDot,
     showFeed,
     selectCategory,
     runSearch,
     applyLayout,
     updateNowPlaying,
     copyLink,
+    isLiked,
+    toggleLike,
     shareVideo,
     copyText,
     videoUrl,
@@ -1161,6 +1487,7 @@
       getPlaylists: loadPlaylists,
       addToPlaylist,
       copyLink,
+      openChannel: (channel) => window.AyuTubeChannel?.open?.(channel),
       extraItems: (video) => {
         if (typeof window.AyuTubeLibrary?.setChannelPref !== "function") {
           return [];
@@ -1186,7 +1513,16 @@
     const params = new URLSearchParams(location.search);
     const id = params.get("v");
 
-    if (!id || !validVideoId(id)) return false;
+    if (!id || !validVideoId(id)) {
+      const channelId = params.get("c");
+
+      if (channelId && window.AyuTubeChannel?.isChannelId?.(channelId)) {
+        window.AyuTubeChannel.open({ id: channelId, name: "" }, { entry: true });
+        return true;
+      }
+
+      return false;
+    }
 
     const start = Number(params.get("t"));
 
@@ -1239,6 +1575,23 @@
     showFeed();
 
     window.AyuTubeSearchUI?.init?.();
+
+    // First visit: offer to create an account, sign in or go incognito.
+    window.AyuTubeWelcome?.maybeShow?.();
+
+    getPersonal().then((personal) => {
+      if (!personal.user) return;
+
+      window.AyuTubeWelcome?.dismiss?.();
+
+      // The strip and feed depend on the chosen interests.
+      renderCategories().catch(() => {});
+      window.AyuTubeFollowing?.refreshBadge?.();
+
+      if (!personal.profile.onboarded_at) {
+        window.AyuTubeOnboarding?.maybeRun?.();
+      }
+    });
   }
 
   if (document.readyState === "loading") {

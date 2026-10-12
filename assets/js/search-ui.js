@@ -40,6 +40,9 @@
 
     if (text.length < 2) return;
 
+    // "Pause history" also stops saving recent searches.
+    if (UI().store.get("ayutube.noHistory", false) === true) return;
+
     const next = [
       text,
       ...recents().filter((item) => item.toLowerCase() !== text.toLowerCase())

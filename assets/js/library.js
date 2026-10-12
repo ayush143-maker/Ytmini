@@ -7,7 +7,9 @@
     watchLater: "watch_later",
     history: "watch_history",
     channelPrefs: "channel_preferences",
-    notes: "video_notes"
+    notes: "video_notes",
+    likes: "video_likes",
+    profiles: "profiles"
   });
 
   const LIMITS = Object.freeze({
@@ -834,6 +836,150 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Profile: interests, exam date, first-run state
+  // ---------------------------------------------------------------------------
+
+  const PROFILE_COLUMNS = "interests, exam_name, exam_date, onboarded_at";
+  const INTEREST_PATTERN = /^[a-z0-9-]{1,40}$/;
+  const MAX_INTERESTS = 5;
+  const MAX_EXAM_NAME = 60;
+
+  async function getProfile() {
+    const { client, user } = await getContext();
+
+    const row = await execute(
+      client
+        .from(TABLES.profiles)
+        .select(PROFILE_COLUMNS)
+        .eq("id", user.id)
+        .maybeSingle(),
+      "Unable to load your profile."
+    );
+
+    return {
+      interests: Array.isArray(row?.interests) ? row.interests : [],
+      exam_name: row?.exam_name ?? null,
+      exam_date: row?.exam_date ?? null,
+      onboarded_at: row?.onboarded_at ?? null
+    };
+  }
+
+  function validDate(value) {
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return false;
+    }
+
+    const date = new Date(`${value}T00:00:00Z`);
+
+    return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
+  }
+
+  /**
+   * Saves only the fields that are passed. `onboarded: true` records that the
+   * first-run choices were made (or skipped).
+   */
+  async function saveProfile({ interests, exam_name, exam_date, onboarded } = {}) {
+    const { client, user } = await getContext();
+    const payload = { id: user.id, updated_at: new Date().toISOString() };
+
+    if (interests !== undefined) {
+      if (!Array.isArray(interests)) {
+        throw new Error("Interests must be a list.");
+      }
+
+      const unique = [...new Set(interests)];
+
+      if (unique.length > MAX_INTERESTS) {
+        throw new Error(`Choose up to ${MAX_INTERESTS} interests.`);
+      }
+
+      if (!unique.every((item) => typeof item === "string" && INTEREST_PATTERN.test(item))) {
+        throw new Error("One of the interests is not valid.");
+      }
+
+      payload.interests = unique;
+    }
+
+    if (exam_name !== undefined) {
+      const name = typeof exam_name === "string" ? exam_name.trim() : "";
+
+      if (name.length > MAX_EXAM_NAME) {
+        throw new Error(`Exam names can be up to ${MAX_EXAM_NAME} characters.`);
+      }
+
+      payload.exam_name = name || null;
+    }
+
+    if (exam_date !== undefined) {
+      if (exam_date !== null && exam_date !== "" && !validDate(exam_date)) {
+        throw new Error("That exam date is not valid.");
+      }
+
+      payload.exam_date = exam_date || null;
+    }
+
+    if (onboarded === true) {
+      payload.onboarded_at = new Date().toISOString();
+    }
+
+    return execute(
+      client
+        .from(TABLES.profiles)
+        .upsert(payload, { onConflict: "id" })
+        .select(PROFILE_COLUMNS)
+        .single(),
+      "Unable to save your preferences."
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Liked videos
+  // ---------------------------------------------------------------------------
+
+  async function getLikes({ limit = 300 } = {}) {
+    const { client } = await getContext();
+    const count = Math.min(Math.max(Math.floor(Number(limit)) || 300, 1), 1000);
+
+    return execute(
+      client
+        .from(TABLES.likes)
+        .select("id, video_id, title, channel_title, thumbnail_url, created_at")
+        .order("created_at", { ascending: false })
+        .limit(count),
+      "Unable to load your liked videos."
+    );
+  }
+
+  async function likeVideo(video) {
+    const { client, user } = await getContext();
+    const normalized = normalizeVideo(video);
+
+    return execute(
+      client
+        .from(TABLES.likes)
+        .upsert(
+          { user_id: user.id, ...normalized },
+          { onConflict: "user_id,video_id" }
+        )
+        .select("id, video_id, title, channel_title, thumbnail_url, created_at")
+        .single(),
+      "Unable to like this video."
+    );
+  }
+
+  async function unlikeVideo(videoId) {
+    const id = validateVideoId(videoId);
+    const { client } = await getContext();
+
+    await execute(
+      client.from(TABLES.likes).delete().eq("video_id", id),
+      "Unable to remove this like."
+    );
+
+    return { success: true };
+  }
+
+  // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 
@@ -866,6 +1012,13 @@
 
     getNotes,
     addNote,
-    deleteNote
+    deleteNote,
+
+    getProfile,
+    saveProfile,
+
+    getLikes,
+    likeVideo,
+    unlikeVideo
   });
 })();

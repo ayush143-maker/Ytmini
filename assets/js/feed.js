@@ -131,6 +131,39 @@
       .join(" ");
   }
 
+  function daysUntil(isoDate) {
+    const [year, month, day] = String(isoDate).split("-").map(Number);
+    const target = new Date(year, month - 1, day);
+    const today = new Date();
+
+    today.setHours(0, 0, 0, 0);
+
+    return Math.round((target - today) / 86400000);
+  }
+
+  /** Days left to the exam the person entered (none when not set or past). */
+  function examBar(profile) {
+    if (!profile?.exam_date) return null;
+
+    const days = daysUntil(profile.exam_date);
+
+    if (!Number.isFinite(days) || days < 0) return null;
+
+    const bar = el("div", "exam");
+    const label = profile.exam_name || "your exam";
+
+    bar.append(
+      el("span", "exam-days", days === 0 ? "Today" : String(days)),
+      el(
+        "span",
+        "exam-label",
+        days === 0 ? label : `${days === 1 ? "day" : "days"} to ${label}`
+      )
+    );
+
+    return bar;
+  }
+
   function section(title, body, action) {
     const wrap = el("section", "feed-section");
     const head = el("div", "section-head");
@@ -195,11 +228,10 @@
     const study = ui.isStudy();
 
     try {
+      personal = await ui.getPersonal();
       module = await ui.ensureCategories();
 
-      const visible = module
-        .getAll()
-        .filter((item) => !(study && ui.ENTERTAINMENT.has(item.id)));
+      const visible = ui.visibleCategories(module);
 
       const active = category ? module.getById(category) : null;
       const topics = active ? [active] : visible;
@@ -222,10 +254,7 @@
         );
       }
 
-      [groups, personal] = await Promise.all([
-        fetchGroups(queries),
-        ui.getPersonal()
-      ]);
+      groups = await fetchGroups(queries);
 
       if (!current()) return;
 
@@ -298,6 +327,10 @@
 
     container.replaceChildren();
     container.removeAttribute("aria-busy");
+
+    const exam = examBar(personal.profile);
+
+    if (exam) container.append(exam);
 
     // Continue watching comes first, so those videos are not repeated below.
     const unfinished = personal.history
