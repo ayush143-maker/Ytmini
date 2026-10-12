@@ -17,10 +17,13 @@ Swiss editorial design: one grotesk (Schibsted Grotesk), a script wordmark
 - `assets/js/cards.js` - video card, action menu, skeletons
 - `assets/js/feed.js` - home feed (lead, continue watching, category blocks, endless list)
 - `assets/js/watch.js` - watch page: actions, Up next, autoplay, resume, notes, shared links
+- `assets/js/channel.js` - channel page (Piped channel endpoint, falls back to a search by name)
+- `assets/js/following.js` - latest videos from followed channels and the "New" markers
+- `assets/js/welcome.js`, `onboarding.js` - first-visit screen (create account / sign in / incognito) and the interests picker
 - `assets/js/search-ui.js` - local search suggestions and recent searches
 - `assets/js/library-ui.js`, `account-ui.js` - Library and Account screens
 - `assets/js/app.js` - shell, navigation, search, panes, history/deep links
-- `api/search.js`, `api/streams.js`, `api/feed.js` - serverless routes
+- `api/search.js`, `api/streams.js`, `api/feed.js`, `api/channel.js` - serverless routes
 - `api/_piped.js`, `api/_normalize.js` - shared helpers (not routes)
 - `api/config.js` - public Supabase URL and publishable key
 - `supabase/schema.sql`, `supabase/migrations/` - database schema
@@ -42,6 +45,13 @@ Never put a secret or `service_role` key in the frontend or in `SUPABASE_PUBLISH
 3. Add the environment variables, then deploy.
 4. Supabase > Authentication > URL Configuration: set the Site URL and Redirect URLs to your Vercel domain.
 5. Check `/api/config`, `/api/search?q=test`, `/api/feed?q=oggy`, then sign up, play a video and open Library.
+
+## Features
+
+- Home feed from the categories a person chose (or the normal five), channel pages, Library > Following with a "New" marker, likes, notes, share at the current time, pause history, exam countdown (the person enters the date).
+- Incognito on the first screen means no account and the normal feed.
+- Signing up sends Supabase's confirmation mail. On Supabase's default email service the sending limit is very small; for real users set up your own SMTP in Supabase > Authentication.
+- Icons in the navigation are from Lucide (ISC licence).
 
 ## Notes
 
