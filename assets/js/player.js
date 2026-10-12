@@ -9,6 +9,7 @@
     historyMinimumProgressDelta: 8,
     youtubeReadyTimeoutMs: 10000,
     streamLoadTimeoutMs: 10000,
+    playStartTimeoutMs: 4000,
     validIdPattern: /^[A-Za-z0-9_-]{6,20}$/
   });
 
@@ -117,97 +118,116 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Loading: a heartbeat line sweeps left to right. Playback starts only when
-  // the video is ready AND the line has reached the right edge.
+  // Loading: a thin pink line moves forward while the video loads. Playback
+  // starts underneath it as soon as the player is ready, and the line is
+  // removed the moment the player reports that the video is playing, so
+  // the player's own paused screen never flashes in between.
   // ---------------------------------------------------------------------------
 
-  let gate = null; // { token, ready, start }
+  let gate = null; // { token, finishing }
+  let lineFrame = 0;
+  let startTimer = 0;
 
   const prefersReducedMotion = () =>
     Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
 
-  function buildEcg() {
-    const ns = "http://www.w3.org/2000/svg";
+  function stopLine() {
+    cancelAnimationFrame(lineFrame);
+    lineFrame = 0;
+  }
 
-    // One heartbeat: flat, P wave, Q dip, R spike, S dip, T wave, flat.
-    const beat = (x) =>
-      `H${x + 70}Q${x + 82} 52 ${x + 94} 60H${x + 140}L${x + 152} 68L${x + 166} 10` +
-      `L${x + 182} 106L${x + 194} 60H${x + 232}Q${x + 256} 38 ${x + 282} 60H${x + 300}`;
+  function buildLine() {
+    const track = document.createElement("div");
+    track.className = "load-line";
 
-    const wrap = document.createElement("div");
-    wrap.className = "ecg";
-
-    const frame = document.createElement("div");
-    frame.className = "ecg-frame";
-
-    const svg = document.createElementNS(ns, "svg");
-    svg.setAttribute("viewBox", "0 0 600 120");
-    svg.setAttribute("preserveAspectRatio", "none");
-    svg.setAttribute("aria-hidden", "true");
-    svg.setAttribute("focusable", "false");
-    svg.classList.add("ecg-trace");
-
-    const path = document.createElementNS(ns, "path");
-    path.setAttribute("d", `M0 60${beat(0)}${beat(300)}`);
-    svg.append(path);
-
-    const head = document.createElement("i");
-    head.className = "ecg-head";
+    const fill = document.createElement("i");
+    track.append(fill);
 
     const label = document.createElement("span");
     label.className = "sr-only";
     label.textContent = "Loading video";
+    track.append(label);
 
-    // The trace restarts at every iteration; each restart is a "reached the
-    // right side" moment, which is when a ready video may start.
-    svg.addEventListener("animationiteration", () => {
-      if (gate?.ready) reveal();
-    });
-
-    frame.append(svg, head);
-    wrap.append(frame, label);
-
-    return wrap;
+    return { track, fill };
   }
 
   function showLoading(token) {
-    // Keep the sweep running if this play request is already showing it.
+    // Keep the line running if this play request is already showing it.
     if (gate && gate.token === token && !dom.message.hidden) return;
 
-    gate = { token, ready: false, start: null };
+    stopLine();
+    clearTimeout(startTimer);
+
+    gate = { token, finishing: false };
+
+    const { track, fill } = buildLine();
 
     dom.message.className = "player-message is-loading";
-    dom.message.replaceChildren(buildEcg());
+    dom.message.replaceChildren(track);
     dom.message.hidden = false;
     dom.message.setAttribute("role", "status");
-  }
 
-  function reveal() {
-    if (!gate) return;
-
-    const { start } = gate;
-
-    hideMessage();
-
-    try {
-      start?.();
-    } catch {
-      // The player controls remain available if autoplay is blocked.
+    if (prefersReducedMotion()) {
+      fill.style.transform = "scaleX(1)";
+      return;
     }
+
+    // Quick at first, then slower, never quite reaching the end by itself.
+    const started = performance.now();
+
+    const tick = (now) => {
+      const progress = 0.92 * (1 - Math.exp(-(now - started) / 1800));
+
+      fill.style.transform = `scaleX(${progress.toFixed(4)})`;
+      lineFrame = requestAnimationFrame(tick);
+    };
+
+    lineFrame = requestAnimationFrame(tick);
   }
 
-  /** The video can play. `start` runs once the line reaches the right side. */
-  function whenReady(token, start) {
-    if (!gate || gate.token !== token) return;
+  /**
+   * The video is playing (or cannot be waited for any longer): run the line
+   * to the end and remove it.
+   */
+  function finishLoading() {
+    if (!gate || gate.finishing) return;
 
-    gate.ready = true;
-    gate.start = start || null;
+    const current = gate;
+    const fill = dom.message.querySelector(".load-line i");
 
-    if (prefersReducedMotion()) reveal();
+    current.finishing = true;
+    stopLine();
+    clearTimeout(startTimer);
+
+    if (!fill || prefersReducedMotion()) {
+      hideMessage();
+      return;
+    }
+
+    fill.style.transition = "transform 120ms linear";
+    fill.style.transform = "scaleX(1)";
+
+    setTimeout(() => {
+      if (gate === current) hideMessage();
+    }, 130);
+  }
+
+  /**
+   * Safety net: if playback does not begin (autoplay blocked, slow network),
+   * remove the line so the player's own play button is reachable.
+   */
+  function armStartFallback(token) {
+    clearTimeout(startTimer);
+
+    startTimer = setTimeout(() => {
+      if (isCurrent(token)) finishLoading();
+    }, CONFIG.playStartTimeoutMs);
   }
 
   function showMessage(text, isError = false) {
     gate = null;
+    stopLine();
+    clearTimeout(startTimer);
 
     dom.message.className = "player-message";
     dom.message.replaceChildren();
@@ -221,6 +241,8 @@
 
   function hideMessage() {
     gate = null;
+    stopLine();
+    clearTimeout(startTimer);
 
     dom.message.className = "player-message";
     dom.message.hidden = true;
@@ -641,7 +663,7 @@
     dom.video.onplaying = () => {
       if (!isCurrent(token) || activeMode !== "direct") return;
 
-      hideMessage();
+      finishLoading();
       queueHistory(true);
       emit("state", "playing");
     };
@@ -806,11 +828,12 @@
       return;
     }
 
-    whenReady(token, () => {
-      dom.video.play()?.catch?.(() => {
-        // Autoplay restrictions are not a stream failure; controls remain.
-      });
+    // Start right away, under the line. The "playing" event removes it.
+    dom.video.play()?.catch?.(() => {
+      // Autoplay restrictions are not a stream failure; controls remain.
     });
+
+    armStartFallback(token);
   }
 
   // ---------------------------------------------------------------------------
@@ -896,7 +919,7 @@
     if (!states) return;
 
     if (state === states.PLAYING) {
-      hideMessage();
+      finishLoading();
       queueHistory(true);
       emit("state", "playing");
 
@@ -1000,8 +1023,14 @@
               // Not every video supports every speed.
             }
 
-            // Start once the heartbeat line has reached the right side.
-            whenReady(token, () => event.target.playVideo());
+            // Start right away, under the line. The PLAYING state removes it.
+            try {
+              event.target.playVideo();
+            } catch {
+              // The player controls remain available.
+            }
+
+            armStartFallback(token);
           },
           onStateChange: (event) => {
             handleYouTubeState(event, token);
@@ -1041,11 +1070,13 @@
       iframe.src = youtubeEmbedUrl(item.id, activeStart);
 
       // This path is used only if the IFrame API itself is unavailable.
-      // The embed autoplays and cannot report playback time; the heartbeat
-      // line covers it until the frame has loaded and the line has finished.
+      // The embed autoplays and cannot report playback time; the line stays
+      // until the frame has loaded.
       showLoading(token);
 
-      const ready = () => whenReady(token, null);
+      const ready = () => {
+        if (isCurrent(token)) finishLoading();
+      };
 
       iframe.addEventListener("load", ready, { once: true });
       setTimeout(ready, CONFIG.youtubeReadyTimeoutMs);
