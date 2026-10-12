@@ -30,7 +30,6 @@
   --script: "Sacramento", "Snell Roundhand", "Segoe Script", "Brush Script MT",
     cursive;
 
-  --ecg-duration: 1.5s;
   --gutter: 16px;
   --rail-w: 236px;
   --tabbar-h: calc(60px + env(safe-area-inset-bottom, 0px));
@@ -1726,92 +1725,28 @@ body.has-now-playing .toast {
   }
 }
 
-/* 18. Heartbeat loader ---------------------------------------------------- */
+/* 18. Loading line --------------------------------------------------------- */
 
 .player-message.is-loading {
+  display: grid;
+  align-content: center;
   padding: 0;
   background: #000;
 }
 
-.ecg {
-  display: grid;
-  width: 100%;
-  height: 100%;
-  place-items: center;
-}
-
-.ecg-frame {
+.load-line {
   position: relative;
-  width: min(86%, 520px);
-  height: 100px;
-}
-
-/* the resting baseline the trace is drawn on */
-.ecg-frame::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  right: 0;
-  left: 0;
-  height: 1px;
+  width: 100%;
+  height: 3px;
   background: var(--steel);
 }
 
-.ecg-trace {
+.load-line i {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  clip-path: inset(0 100% 0 0);
-  animation: ecg-sweep var(--ecg-duration) linear infinite;
-}
-
-.ecg-trace path {
-  fill: none;
-  stroke: var(--pink);
-  stroke-width: 2.5;
-  stroke-linejoin: miter;
-  vector-effect: non-scaling-stroke;
-}
-
-.ecg-head {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 2px;
   background: var(--pink);
-  animation: ecg-head var(--ecg-duration) linear infinite;
-}
-
-@keyframes ecg-sweep {
-  from {
-    clip-path: inset(0 100% 0 0);
-  }
-
-  to {
-    clip-path: inset(0 0 0 0);
-  }
-}
-
-@keyframes ecg-head {
-  from {
-    left: 0;
-  }
-
-  to {
-    left: calc(100% - 2px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ecg-trace {
-    clip-path: none;
-  }
-
-  .ecg-head {
-    display: none;
-  }
+  transform: scaleX(0);
+  transform-origin: left center;
 }
 
 /* 19. Exam countdown ------------------------------------------------------- */
