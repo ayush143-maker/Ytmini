@@ -83,6 +83,13 @@ function getChannelId(item) {
   return fromUrl?.[1] || "";
 }
 
+function getUploadedAt(item) {
+  const value = wholeNumber(item.uploaded, { min: 1 });
+
+  // Providers report milliseconds; reject anything in the far future.
+  return value !== null && value <= Date.now() + 86400000 ? value : null;
+}
+
 /**
  * Returns the public shape of one video, or null when the entry cannot be
  * identified as a video. Original fields are unchanged; the extra fields
@@ -139,8 +146,11 @@ function normalizeResult(item) {
     uploaded: text(item.uploadedDate, LIMITS.maxAgeTextLength),
 
     channelId: getChannelId(item),
-    short: item.isShort === true
+    short: item.isShort === true,
+
+    // Upload time in milliseconds since 1970, or null when unknown.
+    uploadedAt: getUploadedAt(item)
   };
 }
 
-module.exports = { normalizeResult, LIMITS };
+module.exports = { normalizeResult, secureUrl: secureThumbnail, text, wholeNumber, LIMITS };

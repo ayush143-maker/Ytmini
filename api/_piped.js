@@ -123,6 +123,36 @@ function validatePath(path) {
     return url.pathname;
   }
 
+  // Channel pages: first page of uploads, and later pages by opaque token.
+  const channelMatch = url.pathname.match(
+    /^\/channel\/([A-Za-z0-9_-]{10,40})$/
+  );
+
+  if (channelMatch && !url.search) {
+    return url.pathname;
+  }
+
+  const channelPageMatch = url.pathname.match(
+    /^\/nextpage\/channel\/([A-Za-z0-9_-]{10,40})$/
+  );
+
+  if (channelPageMatch) {
+    const keys = [...url.searchParams.keys()];
+    const token = url.searchParams.get("nextpage");
+
+    if (
+      keys.length !== 1 ||
+      keys[0] !== "nextpage" ||
+      url.searchParams.getAll("nextpage").length !== 1 ||
+      !token ||
+      token.length > 4000
+    ) {
+      throw new Error("Invalid channel page request.");
+    }
+
+    return url.pathname + url.search;
+  }
+
   throw new Error("Unsupported provider operation.");
 }
 
@@ -188,6 +218,10 @@ function hasUsableStreams(streams) {
   });
 }
 
+function isChannelPath(path) {
+  return path.startsWith("/channel/") || path.startsWith("/nextpage/channel/");
+}
+
 function validatePayload(path, data) {
   if (path.startsWith("/search")) {
     const items = getSearchItems(data);
@@ -215,6 +249,17 @@ function validatePayload(path, data) {
       throw new Error("Provider returned an invalid streams response.");
     }
   }
+
+  if (isChannelPath(path)) {
+    if (
+      !data ||
+      typeof data !== "object" ||
+      Array.isArray(data) ||
+      !Array.isArray(data.relatedStreams)
+    ) {
+      throw new Error("Provider returned an invalid channel response.");
+    }
+  }
 }
 
 function isUsableResponse(path, data) {
@@ -224,6 +269,10 @@ function isUsableResponse(path, data) {
 
   if (path.startsWith("/streams/")) {
     return hasUsableStreams(data.videoStreams);
+  }
+
+  if (isChannelPath(path)) {
+    return hasUsableSearchItems(data.relatedStreams);
   }
 
   return false;
@@ -240,6 +289,13 @@ function isValidEmptyResponse(path, data) {
     return (
       Array.isArray(data?.videoStreams) &&
       !hasUsableStreams(data.videoStreams)
+    );
+  }
+
+  if (isChannelPath(path)) {
+    return (
+      Array.isArray(data?.relatedStreams) &&
+      !hasUsableSearchItems(data.relatedStreams)
     );
   }
 
