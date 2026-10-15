@@ -15,6 +15,7 @@
     browse: "feed", // feed | results
     category: null,
     feedKey: "",
+    feedWasGuest: true, // the last feed was drawn without personal rows
     librarySection: "playlists",
     playlistId: null,
     authMode: "signin",
@@ -246,6 +247,28 @@
 
   let personalPromise = null;
   let personalAt = 0;
+  // The topics shown on the very first paint come from what this device last
+  // learned about the visitor, so the default topics never flash before the
+  // person's own interests arrive from the database.
+  const SIGNED_IN_KEY = "ayutube.signedIn";
+  const INTERESTS_KEY = "ayutube.interests";
+
+  let personalReady = false;
+
+  const isKnownGuest = () => store.get(SIGNED_IN_KEY, false) !== true;
+
+  function interestsNow() {
+    if (personalReady) return personalData.profile.interests || [];
+
+    if (isKnownGuest()) return [];
+
+    const cached = store.get(INTERESTS_KEY, []);
+
+    return Array.isArray(cached)
+      ? cached.filter((id) => typeof id === "string")
+      : [];
+  }
+
   const emptyProfile = () => ({
     interests: [],
     exam_name: null,
@@ -279,10 +302,14 @@
         profile: emptyProfile()
       };
 
+      let authChecked = false;
+
       try {
         await ensureAuthModules();
 
         const user = await window.AyuTubeAuth.getCurrentUser();
+
+        authChecked = true;
 
         if (user) {
           data.user = user;
@@ -327,6 +354,13 @@
         // Signed out, offline or not configured: personalisation is optional.
       }
 
+      // Only trust the result when the account check itself succeeded.
+      if (authChecked) {
+        store.set(SIGNED_IN_KEY, Boolean(data.user));
+        store.set(INTERESTS_KEY, data.user ? data.profile.interests : []);
+        personalReady = true;
+      }
+
       personalData = data;
       return data;
     })();
@@ -365,7 +399,9 @@
   // Study mode: fewer distractions. Stored on this device.
   // ---------------------------------------------------------------------------
 
-  const ENTERTAINMENT = new Set(["oggy", "facts"]);
+  // Hidden in study mode. When nothing else is left, STUDY_FALLBACK is used.
+  const ENTERTAINMENT = new Set(["oggy", "facts", "music", "games", "fun"]);
+  const STUDY_FALLBACK = Object.freeze(["isi-prep", "maths", "physics", "coding", "quant"]);
 
   const isStudy = () => store.get("ayutube.study", false) === true;
 
@@ -390,7 +426,7 @@
    * or the original five when none were chosen (guests, incognito, skipped).
    */
   function visibleCategories(module) {
-    const chosen = (personalData.profile.interests || [])
+    const chosen = interestsNow()
       .map((id) => module.getById(id))
       .filter(Boolean);
 
@@ -401,7 +437,7 @@
 
       list = focused.length
         ? focused
-        : module.getDefaults().filter((category) => !ENTERTAINMENT.has(category.id));
+        : STUDY_FALLBACK.map((id) => module.getById(id)).filter(Boolean);
     }
 
     return list;
@@ -1036,11 +1072,12 @@
     setStatus("");
     applyLayout();
 
-    const key = `${state.category || "all"}|${isStudy() ? "study" : "all"}|${personalData.profile.interests.join(",")}`;
+    const key = `${state.category || "all"}|${isStudy() ? "study" : "all"}|${interestsNow().join(",")}`;
     const feed = $("#feed");
 
     if (feed && (state.feedKey !== key || !feed.childElementCount)) {
       state.feedKey = key;
+      state.feedWasGuest = isKnownGuest();
       window.AyuTubeFeed?.render?.(feed, { category: state.category });
     }
   }
@@ -1437,6 +1474,8 @@
     ensureCategories,
     ensureApi,
     getPersonal,
+    peekPersonal: () => personalData,
+    isKnownGuest,
     invalidatePersonal,
     isBlocked,
     channelKey,
@@ -1584,8 +1623,18 @@
 
       window.AyuTubeWelcome?.dismiss?.();
 
-      // The strip and feed depend on the chosen interests.
+      // The strip and feed depend on the chosen interests. They were drawn
+      // from the cached interests; correct them only if those were stale.
       renderCategories().catch(() => {});
+
+      // A feed drawn before we knew the visitor was signed in has no personal
+      // rows (continue watching, following): draw it again with them.
+      if (state.feedWasGuest) state.feedKey = "";
+
+      if (state.view === "explore" && state.pane === "browse" && state.browse === "feed") {
+        showFeed();
+      }
+
       window.AyuTubeFollowing?.refreshBadge?.();
 
       if (!personal.profile.onboarded_at) {

@@ -596,13 +596,109 @@
           query: "how things work explained"
         }
       ]
+    },
+    {
+      id: "music",
+      label: "Music",
+      shortLabel: "Music",
+      icon: "music",
+      group: "fun",
+      description: "Songs, covers and music lessons.",
+      defaultQuery: "popular songs music videos",
+      searchSuffix: "music",
+      suggestions: [
+        {
+          id: "music-lofi",
+          label: "Lofi Beats",
+          query: "lofi beats to relax"
+        },
+        {
+          id: "music-bollywood",
+          label: "Bollywood Hits",
+          query: "latest Bollywood songs"
+        },
+        {
+          id: "music-guitar",
+          label: "Guitar Lessons",
+          query: "guitar lessons for beginners"
+        },
+        {
+          id: "music-piano",
+          label: "Piano Tutorials",
+          query: "easy piano tutorials"
+        }
+      ]
+    },
+    {
+      id: "games",
+      label: "Games",
+      shortLabel: "Games",
+      icon: "games",
+      group: "fun",
+      description: "Gameplay, reviews and tips.",
+      defaultQuery: "popular video games gameplay",
+      searchSuffix: "games",
+      suggestions: [
+        {
+          id: "games-mobile",
+          label: "Mobile Games",
+          query: "best mobile games"
+        },
+        {
+          id: "games-minecraft",
+          label: "Minecraft",
+          query: "Minecraft gameplay"
+        },
+        {
+          id: "games-reviews",
+          label: "Game Reviews",
+          query: "video game reviews"
+        },
+        {
+          id: "games-tips",
+          label: "Tips and Tricks",
+          query: "gaming tips and tricks"
+        }
+      ]
+    },
+    {
+      id: "fun",
+      label: "Fun",
+      shortLabel: "Fun",
+      icon: "fun",
+      group: "fun",
+      description: "Comedy, magic and things that make you smile.",
+      defaultQuery: "funny clips and comedy sketches",
+      searchSuffix: "fun",
+      suggestions: [
+        {
+          id: "fun-animals",
+          label: "Funny Animals",
+          query: "funny animals compilation"
+        },
+        {
+          id: "fun-magic",
+          label: "Magic Tricks",
+          query: "magic tricks explained"
+        },
+        {
+          id: "fun-illusions",
+          label: "Optical Illusions",
+          query: "optical illusions explained"
+        },
+        {
+          id: "fun-sketches",
+          label: "Comedy Sketches",
+          query: "clean comedy sketches"
+        }
+      ]
     }
   ];
 
   // Freeze category records and nested suggestions to prevent
   // accidental mutation by other application modules.
-  // The original five are what a visitor without interests sees.
-  const DEFAULT_IDS = Object.freeze(["oggy", "isi-prep", "coding", "quant", "facts"]);
+  // What a visitor without chosen interests sees (guests, incognito, skipped).
+  const DEFAULT_IDS = Object.freeze(["music", "games", "fun"]);
 
   const LEGACY_GROUPS = Object.freeze({
     oggy: "fun",
@@ -678,7 +774,7 @@
    * Find a category by its stable ID.
    * Returns null when the category does not exist.
    */
-  /** The categories a visitor without chosen interests sees. */
+  /** The categories a visitor without chosen interests sees (Music, Games, Fun). */
   function getDefaults() {
     return DEFAULT_IDS.map((id) => CATEGORY_BY_ID[id]).filter(Boolean);
   }

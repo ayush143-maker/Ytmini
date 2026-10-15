@@ -228,7 +228,9 @@
     const study = ui.isStudy();
 
     try {
-      personal = await ui.getPersonal();
+      // A known guest has no personal rows, so the feed need not wait for the
+      // account check (which may load the Supabase SDK).
+      personal = ui.isKnownGuest() ? ui.peekPersonal() : await ui.getPersonal();
       module = await ui.ensureCategories();
 
       const visible = ui.visibleCategories(module);
