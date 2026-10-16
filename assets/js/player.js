@@ -10,6 +10,7 @@
     youtubeReadyTimeoutMs: 10000,
     streamLoadTimeoutMs: 10000,
     playStartTimeoutMs: 4000,
+    barPollMs: 250,
     validIdPattern: /^[A-Za-z0-9_-]{6,20}$/
   });
 
@@ -324,7 +325,7 @@
     return `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
   }
 
-  function youtubeEmbedUrl(id, start = 0, autoplay = true) {
+  function youtubeEmbedUrl(id, start = 0, autoplay = true, clean = false) {
     const url = new URL(
       `https://www.youtube.com/embed/${encodeURIComponent(id)}`
     );
@@ -333,6 +334,15 @@
     url.searchParams.set("playsinline", "1");
     url.searchParams.set("rel", "0");
     url.searchParams.set("enablejsapi", "1");
+
+    if (clean) {
+      // Our own bar replaces YouTube's: no control bar, no keyboard
+      // shortcuts, no YouTube fullscreen button, no annotations.
+      url.searchParams.set("controls", "0");
+      url.searchParams.set("disablekb", "1");
+      url.searchParams.set("fs", "0");
+      url.searchParams.set("iv_load_policy", "3");
+    }
 
     if (start > 0) {
       url.searchParams.set("start", String(Math.floor(start)));
@@ -403,6 +413,7 @@
 
     destroyYoutubePlayer();
 
+    hideBar();
     hideMessage();
     dom.watchLink.hidden = true;
   }
@@ -413,6 +424,307 @@
     dom.watchLink.rel = "noopener noreferrer";
     dom.watchLink.textContent = "Watch on YouTube ↗";
     dom.watchLink.hidden = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Clean controls: our own play / seek / mute / fullscreen bar, placed under
+  // the video (never over it). On by default; the Account tab can switch it
+  // off, which brings back YouTube's own controls. Applies to the next video.
+  // ---------------------------------------------------------------------------
+
+  const CLEAN_KEY = "ayutube.clean";
+
+  function cleanControlsOn() {
+    try {
+      return JSON.parse(localStorage.getItem(CLEAN_KEY)) !== false;
+    } catch {
+      return true;
+    }
+  }
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+
+  // [path, "fill" | "stroke"]
+  const ICONS = Object.freeze({
+    play: [["M7 4.5v15l12-7.5z", "fill"]],
+    pause: [["M6 4.5h4.5v15H6zM13.5 4.5H18v15h-4.5z", "fill"]],
+    volume: [
+      ["M3 9v6h4l5 4V5L7 9z", "fill"],
+      ["M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13", "stroke"]
+    ],
+    muted: [
+      ["M3 9v6h4l5 4V5L7 9z", "fill"],
+      ["M16 9.5l5 5M21 9.5l-5 5", "stroke"]
+    ],
+    expand: [["M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5", "stroke"]],
+    shrink: [["M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5", "stroke"]]
+  });
+
+  const bar = {
+    root: null,
+    play: null,
+    mute: null,
+    full: null,
+    range: null,
+    now: null,
+    total: null,
+    timer: 0,
+    dragging: false
+  };
+
+  function iconSvg(name) {
+    const svg = document.createElementNS(SVG_NS, "svg");
+
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+
+    for (const [d, kind] of ICONS[name]) {
+      const path = document.createElementNS(SVG_NS, "path");
+
+      path.setAttribute("d", d);
+
+      if (kind === "fill") {
+        path.setAttribute("fill", "currentColor");
+      } else {
+        path.setAttribute("fill", "none");
+        path.setAttribute("stroke", "currentColor");
+        path.setAttribute("stroke-width", "2");
+      }
+
+      svg.append(path);
+    }
+
+    return svg;
+  }
+
+  function setBarIcon(button, name, label) {
+    if (button.dataset.icon !== name) {
+      button.dataset.icon = name;
+      button.replaceChildren(iconSvg(name));
+    }
+
+    button.setAttribute("aria-label", label);
+  }
+
+  function formatClock(value) {
+    const total = Math.max(0, Math.floor(Number(value) || 0));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const sec = String(total % 60).padStart(2, "0");
+
+    return h > 0
+      ? `${h}:${String(m).padStart(2, "0")}:${sec}`
+      : `${m}:${sec}`;
+  }
+
+  /** Current state of whichever engine is active, or null. */
+  function mediaState() {
+    try {
+      if (activeMode === "direct") {
+        const duration = Number(dom.video.duration);
+
+        return {
+          playing: !dom.video.paused && !dom.video.ended,
+          time: Number(dom.video.currentTime) || 0,
+          duration: Number.isFinite(duration) ? duration : 0,
+          muted: Boolean(dom.video.muted)
+        };
+      }
+
+      if (activeMode === "youtube" && youtubePlayer?.getPlayerState) {
+        const states = window.YT?.PlayerState;
+        const state = youtubePlayer.getPlayerState();
+
+        return {
+          playing:
+            Boolean(states) &&
+            (state === states.PLAYING || state === states.BUFFERING),
+          time: Number(youtubePlayer.getCurrentTime()) || 0,
+          duration: Number(youtubePlayer.getDuration()) || 0,
+          muted: Boolean(youtubePlayer.isMuted?.())
+        };
+      }
+    } catch {
+      // The engine is not ready yet.
+    }
+
+    return null;
+  }
+
+  function toggleMute() {
+    const state = mediaState();
+
+    if (!state) return;
+
+    try {
+      if (activeMode === "direct") {
+        dom.video.muted = !state.muted;
+      } else if (state.muted) {
+        youtubePlayer.unMute();
+      } else {
+        youtubePlayer.mute();
+      }
+    } catch (error) {
+      console.debug("AyuTube could not change volume:", error);
+    }
+
+    syncBar();
+  }
+
+  function toggleFullscreen() {
+    const target = dom.panel.querySelector(".watch-player");
+    const active = document.fullscreenElement || document.webkitFullscreenElement;
+
+    try {
+      if (active) {
+        (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      } else if (target) {
+        (target.requestFullscreen || target.webkitRequestFullscreen).call(target);
+      }
+    } catch (error) {
+      console.debug("AyuTube could not change fullscreen:", error);
+    }
+  }
+
+  function paintRange() {
+    bar.range.style.setProperty("--p", `${Number(bar.range.value) / 10}%`);
+  }
+
+  function ensureBar() {
+    if (bar.root) return bar.root;
+
+    // Structure: .watch-player > (.video-frame > video), then this bar.
+    const host = dom.video.parentElement?.parentElement;
+
+    if (!host) return null;
+
+    const root = document.createElement("div");
+    root.className = "clean-bar";
+    root.hidden = true;
+    root.setAttribute("role", "group");
+    root.setAttribute("aria-label", "Video controls");
+
+    const makeButton = () => {
+      const button = document.createElement("button");
+
+      button.type = "button";
+      button.className = "clean-btn";
+
+      return button;
+    };
+
+    bar.play = makeButton();
+    bar.play.addEventListener("click", () => {
+      if (mediaState()?.playing) pause();
+      else resume();
+
+      setTimeout(syncBar, 120);
+    });
+
+    bar.now = document.createElement("span");
+    bar.now.className = "clean-time";
+    bar.now.textContent = "0:00";
+
+    bar.range = document.createElement("input");
+    bar.range.type = "range";
+    bar.range.className = "clean-range";
+    bar.range.min = "0";
+    bar.range.max = "1000";
+    bar.range.step = "1";
+    bar.range.value = "0";
+    bar.range.disabled = true;
+    bar.range.setAttribute("aria-label", "Seek");
+
+    bar.range.addEventListener("input", () => {
+      bar.dragging = true;
+
+      const duration = mediaState()?.duration || 0;
+
+      bar.now.textContent = formatClock((duration * bar.range.value) / 1000);
+      paintRange();
+    });
+
+    bar.range.addEventListener("change", () => {
+      const duration = mediaState()?.duration || 0;
+
+      if (duration > 0) seek((duration * bar.range.value) / 1000);
+
+      bar.dragging = false;
+      setTimeout(syncBar, 120);
+    });
+
+    bar.total = document.createElement("span");
+    bar.total.className = "clean-time";
+    bar.total.textContent = "0:00";
+
+    bar.mute = makeButton();
+    bar.mute.addEventListener("click", toggleMute);
+
+    root.append(bar.play, bar.now, bar.range, bar.total, bar.mute);
+
+    // iPhone Safari cannot fullscreen a page element, so no button there.
+    if (document.fullscreenEnabled || document.webkitFullscreenEnabled) {
+      bar.full = makeButton();
+      bar.full.addEventListener("click", toggleFullscreen);
+      root.append(bar.full);
+    }
+
+    setBarIcon(bar.play, "play", "Play");
+    setBarIcon(bar.mute, "volume", "Mute");
+    if (bar.full) setBarIcon(bar.full, "expand", "Fullscreen");
+
+    host.append(root);
+    bar.root = root;
+
+    return root;
+  }
+
+  function syncBar() {
+    if (!bar.root || bar.root.hidden) return;
+
+    const state = mediaState();
+
+    if (!state) return;
+
+    setBarIcon(bar.play, state.playing ? "pause" : "play", state.playing ? "Pause" : "Play");
+    setBarIcon(bar.mute, state.muted ? "muted" : "volume", state.muted ? "Unmute" : "Mute");
+
+    if (bar.full) {
+      const full = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+
+      setBarIcon(bar.full, full ? "shrink" : "expand", full ? "Exit fullscreen" : "Fullscreen");
+    }
+
+    bar.range.disabled = !(state.duration > 0);
+    bar.total.textContent = formatClock(state.duration);
+
+    if (!bar.dragging) {
+      bar.range.value =
+        state.duration > 0
+          ? String(Math.min(1000, Math.round((state.time / state.duration) * 1000)))
+          : "0";
+      bar.now.textContent = formatClock(state.time);
+    }
+
+    paintRange();
+  }
+
+  function showBar() {
+    if (!ensureBar()) return;
+
+    bar.root.hidden = false;
+    clearInterval(bar.timer);
+    bar.timer = setInterval(syncBar, CONFIG.barPollMs);
+    syncBar();
+  }
+
+  function hideBar() {
+    clearInterval(bar.timer);
+    bar.timer = 0;
+    bar.dragging = false;
+
+    if (bar.root) bar.root.hidden = true;
   }
 
   // ---------------------------------------------------------------------------
@@ -770,8 +1082,10 @@
 
     destroyYoutubePlayer();
 
+    const clean = cleanControlsOn();
+
     dom.video.hidden = false;
-    dom.video.controls = true;
+    dom.video.controls = !clean;
     dom.video.playsInline = true;
     dom.video.preload = "metadata";
     dom.video.src = stream.url;
@@ -827,6 +1141,8 @@
     if (outcome !== "ready" || !isCurrent(token) || activeMode !== "direct") {
       return;
     }
+
+    if (clean) showBar();
 
     // Start right away, under the line. The "playing" event removes it.
     dom.video.play()?.catch?.(() => {
@@ -959,6 +1275,8 @@
 
     console.warn("YouTube embed returned an error:", error?.data);
 
+    hideBar();
+
     showMessage(
       "This video can't be played here.",
       true
@@ -988,10 +1306,13 @@
 
       showLoading(token);
 
+      // Clean controls: hide YouTube's bar and show ours under the video.
+      const clean = cleanControlsOn();
+
       // When YT.Player receives an existing <iframe>, it attaches to that
       // iframe's current src (videoId/playerVars are ignored). The src must
       // therefore already be the embed URL with enablejsapi=1.
-      iframe.src = youtubeEmbedUrl(item.id, activeStart, false);
+      iframe.src = youtubeEmbedUrl(item.id, activeStart, false, clean);
 
       let playerReady = false;
 
@@ -1022,6 +1343,8 @@
             } catch {
               // Not every video supports every speed.
             }
+
+            if (clean) showBar();
 
             // Start right away, under the line. The PLAYING state removes it.
             try {
@@ -1378,6 +1701,7 @@
     seek,
     setRate,
     getRate: () => activeRate,
+    cleanControlsOn,
     rates: RATES,
     getCurrentTime,
     canTrackTime,
