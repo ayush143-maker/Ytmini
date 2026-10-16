@@ -12,6 +12,13 @@
   let upNextToken = 0;
   let notesToken = 0;
 
+  // When a video is played from a YouTube playlist this holds that playlist's
+  // context, so Up next, Previous / Next and autoplay follow the playlist.
+  let playlistCtx = null;
+  let ctxToken = 0;
+
+  const getPlaylistApi = () => window.AyuTubePlaylist;
+
   const played = new Set(); // IDs already played this session (for autoplay)
 
   function el(tag, className, text) {
@@ -65,11 +72,22 @@
     current = video;
     played.add(video.id);
 
+    playlistCtx = options.playlist || null;
+    ctxToken += 1;
+
+    const listId =
+      playlistCtx?.id ||
+      (getPlaylistApi()?.isPlaylistId?.(options.list) ? options.list : "");
+
     // Show the watch page right away; everything else fills in behind it.
     ui.showWatch(video, {
       push: !options.fromHistory && !options.entry,
-      entry: Boolean(options.entry)
+      entry: Boolean(options.entry),
+      list: listId
     });
+
+    // Opened from a link or Back: bring the playlist back in behind the video.
+    if (!playlistCtx && listId) restorePlaylist(listId, video.id);
 
     // Resume where the person stopped, unless a start time was given.
     let from = Number(options.start) || 0;
@@ -117,12 +135,12 @@
    * Open a video known only by its ID (a shared link). Playback starts at
    * once; title, channel and Up next fill in when the details arrive.
    */
-  async function openById(id, { start = 0, entry = false } = {}) {
+  async function openById(id, { start = 0, entry = false, list = "" } = {}) {
     const ui = UI();
 
     await open(
       { id, title: "Video", uploaderName: "", thumbnail: "" },
-      { start, entry, placeholder: true }
+      { start, entry, placeholder: true, list }
     );
 
     try {
@@ -173,6 +191,44 @@
 
   const SPEEDS = Object.freeze([1, 1.25, 1.5, 1.75, 2, 0.75]);
 
+  function restorePlaylist(listId, videoId) {
+    const mine = ctxToken;
+
+    getPlaylistApi()
+      ?.context(listId)
+      .then((ctx) => {
+        if (mine !== ctxToken || current?.id !== videoId) return;
+        if (getPlaylistApi().indexOf(ctx, videoId) < 0) return;
+
+        playlistCtx = ctx;
+        renderActions(current);
+        loadUpNext(current);
+      })
+      .catch(() => {
+        // The video plays on its own; only the playlist extras are missing.
+      });
+  }
+
+  async function step(direction) {
+    const api = getPlaylistApi();
+    const ctx = playlistCtx;
+
+    if (!api || !ctx || !current) return;
+
+    const from = current.id;
+    const target =
+      direction > 0 ? await api.next(ctx, from) : api.previous(ctx, from);
+
+    if (current?.id !== from || playlistCtx !== ctx) return;
+
+    if (!target) {
+      UI().notify(direction > 0 ? "End of the playlist." : "Start of the playlist.");
+      return;
+    }
+
+    open(target, { playlist: ctx });
+  }
+
   function renderActions(video) {
     const ui = UI();
     const box = $("#watch-actions");
@@ -180,6 +236,16 @@
     if (!box) return;
 
     box.replaceChildren();
+
+    if (playlistCtx) {
+      const api = getPlaylistApi();
+      const prev = ui.makeButton("Previous", "ay-action", () => step(-1));
+      const nextButton = ui.makeButton("Next", "ay-action", () => step(1));
+
+      prev.disabled = api.indexOf(playlistCtx, video.id) <= 0;
+      nextButton.disabled = !api.hasNext(playlistCtx, video.id);
+      box.append(prev, nextButton);
+    }
 
     const like = ui.makeButton("Like", "ay-action");
 
@@ -295,6 +361,17 @@
     const token = ++upNextToken;
     upNext = [];
 
+    const heading = aside.querySelector(".watch-next-title");
+
+    if (heading) heading.textContent = "Up next";
+
+    // Playing a playlist: show the playlist itself, in order. This also shows
+    // in study mode, because the person chose this list on purpose.
+    if (playlistCtx) {
+      renderPlaylistPanel(aside, box, heading, video);
+      return;
+    }
+
     if (ui.isStudy()) {
       aside.hidden = true;
       return;
@@ -363,8 +440,92 @@
     }
   }
 
+  function renderPlaylistPanel(aside, box, heading, video) {
+    const ui = UI();
+    const ctx = playlistCtx;
+    const api = getPlaylistApi();
+
+    aside.hidden = false;
+
+    if (heading) heading.textContent = ctx.name || "Playlist";
+
+    const personal = ui.peekPersonal?.() || { map: new Map() };
+
+    box.replaceChildren();
+
+    const position = api.indexOf(ctx, video.id) + 1;
+    const total = ctx.count ?? ctx.items.length;
+
+    if (position > 0) {
+      box.append(el("p", "feed-note", `Video ${position} of ${total}`));
+    }
+
+    const stack = el("div", "stack playlist-list");
+
+    ctx.items.forEach((item, index) => {
+      const card = Cards().createCard(item, {
+        variant: "compact",
+        badge: String(index + 1),
+        progress: personal.map?.get(item.id) || null,
+        onPlay: (picked) => open(picked, { playlist: ctx })
+      });
+
+      if (item.id === video.id) {
+        card.classList.add("is-current");
+        card.setAttribute("aria-current", "true");
+      }
+
+      stack.append(card);
+    });
+
+    box.append(stack);
+
+    if (ctx.nextpage) {
+      const more = ui.makeButton("Show more", "ay-action", async () => {
+        more.disabled = true;
+
+        try {
+          await api.loadMore(ctx);
+        } catch {
+          ui.notify("Could not load more of the playlist.");
+        }
+
+        if (playlistCtx === ctx && current) {
+          renderActions(current);
+          loadUpNext(current);
+        }
+      });
+
+      box.append(more);
+    }
+  }
+
   function onEnded() {
-    if (!current || !autoplayOn()) return;
+    if (!current) return;
+
+    // A playlist plays straight through: the person pressed Play all.
+    if (playlistCtx) {
+      const ctx = playlistCtx;
+      const from = current.id;
+
+      getPlaylistApi()
+        .next(ctx, from)
+        .then((target) => {
+          if (current?.id !== from || playlistCtx !== ctx) return;
+
+          if (!target) {
+            UI().notify("Playlist finished.");
+            return;
+          }
+
+          UI().notify(`Next: ${target.title.slice(0, 48)}`);
+          open(target, { playlist: ctx });
+        });
+
+      return;
+    }
+
+    if (!autoplayOn()) return;
 
     const next = upNext.find((video) => !played.has(video.id));
 

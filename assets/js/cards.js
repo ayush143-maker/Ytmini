@@ -10,6 +10,7 @@
     addToPlaylist: null,
     copyLink: null,
     openChannel: null,
+    openPlaylist: null,
     extraItems: null
   };
 
@@ -108,12 +109,12 @@
    */
   function createCard(
     video,
-    { variant = "grid", progress = null, badge = "" } = {}
+    { variant = "grid", progress = null, badge = "", onPlay = null } = {}
   ) {
     const card = el("article", `vcard vcard--${variant}`);
     card.dataset.id = video.id;
 
-    const play = () => handlers.play?.(video);
+    const play = () => (onPlay ? onPlay(video) : handlers.play?.(video));
 
     // The thumbnail is a pointer target only; the title button is the
     // accessible control, so screen readers do not hear every video twice.
@@ -204,6 +205,118 @@
     });
 
     card.append(media, body, more);
+
+    return card;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Playlist and channel cards (search results, channel playlists tab)
+  // ---------------------------------------------------------------------------
+
+  function countText(count, noun) {
+    if (!Number.isFinite(count) || count < 0) return "";
+
+    return `${count.toLocaleString("en")} ${noun}${count === 1 ? "" : "s"}`;
+  }
+
+  function createPlaylistCard(playlist) {
+    const card = el("article", "vcard vcard--grid pcard");
+    card.dataset.playlist = playlist.id;
+
+    const open = () =>
+      handlers.openPlaylist?.({ id: playlist.id, name: playlist.name });
+
+    const media = el("button", "vcard-media");
+    media.type = "button";
+    media.tabIndex = -1;
+    media.setAttribute("aria-hidden", "true");
+    media.addEventListener("click", open);
+
+    if (playlist.thumbnail) {
+      const image = el("img");
+
+      image.alt = "";
+      image.decoding = "async";
+      image.loading = "lazy";
+      image.src = playlist.thumbnail;
+      image.addEventListener("error", () => image.remove(), { once: true });
+      media.append(image);
+    }
+
+    const count = countText(playlist.count, "video");
+
+    media.append(el("span", "pcard-stack", count || "Playlist"));
+
+    const body = el("div", "vcard-body");
+    const heading = el("h3", "vcard-title");
+    const titleButton = el("button", "vcard-titlebtn", playlist.name);
+
+    titleButton.type = "button";
+    titleButton.addEventListener("click", open);
+    heading.append(titleButton);
+    body.append(heading);
+
+    if (playlist.uploaderName) {
+      const channel = el("button", "vcard-channel", playlist.uploaderName);
+
+      channel.type = "button";
+      channel.addEventListener("click", () =>
+        handlers.openChannel?.({
+          id: playlist.channelId,
+          name: playlist.uploaderName
+        })
+      );
+      body.append(channel);
+    }
+
+    card.append(media, body);
+
+    return card;
+  }
+
+  function createChannelCard(channel) {
+    const card = el("article", "ccard");
+    card.dataset.channel = channel.id;
+
+    const open = () => handlers.openChannel?.({ id: channel.id, name: channel.name });
+
+    const avatar = el("button", "ccard-avatar");
+    avatar.type = "button";
+    avatar.tabIndex = -1;
+    avatar.setAttribute("aria-hidden", "true");
+    avatar.addEventListener("click", open);
+
+    if (channel.thumbnail) {
+      const image = el("img");
+
+      image.alt = "";
+      image.decoding = "async";
+      image.loading = "lazy";
+      image.src = channel.thumbnail;
+      image.addEventListener("error", () => image.remove(), { once: true });
+      avatar.append(image);
+    }
+
+    const body = el("div", "ccard-body");
+    const name = el("button", "ccard-name", channel.name);
+
+    name.type = "button";
+    name.addEventListener("click", open);
+    body.append(name);
+
+    const meta = [
+      countText(channel.subscribers, "subscriber"),
+      countText(channel.videos, "video"),
+      channel.verified ? "Verified" : ""
+    ].filter(Boolean);
+
+    if (meta.length) body.append(el("p", "ccard-meta", meta.join(" \u00B7 ")));
+
+    if (channel.description) {
+      body.append(el("p", "ccard-desc", channel.description));
+    }
+
+    card.append(avatar, body);
 
     return card;
   }
@@ -481,6 +594,8 @@
 
   window.AyuTubeCards = Object.freeze({
     configure,
+    createPlaylistCard,
+    createChannelCard,
     createCard,
     skeletons,
     openMenu,

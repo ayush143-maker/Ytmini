@@ -428,17 +428,17 @@
 
   // ---------------------------------------------------------------------------
   // Clean controls: our own play / seek / mute / fullscreen bar, placed under
-  // the video (never over it). On by default; the Account tab can switch it
-  // off, which brings back YouTube's own controls. Applies to the next video.
+  // the video (never over it). OFF by default (YouTube's own controls); the
+  // Account tab can switch it on. Applies to the next video.
   // ---------------------------------------------------------------------------
 
   const CLEAN_KEY = "ayutube.clean";
 
   function cleanControlsOn() {
     try {
-      return JSON.parse(localStorage.getItem(CLEAN_KEY)) !== false;
+      return JSON.parse(localStorage.getItem(CLEAN_KEY)) === true;
     } catch {
-      return true;
+      return false;
     }
   }
 

@@ -493,6 +493,73 @@
     );
   }
 
+  /**
+   * Add many videos at once (used when saving a YouTube playlist). Videos that
+   * are already in the playlist are skipped. Returns how many were added.
+   */
+  async function addManyToPlaylist(playlistId, videos) {
+    validateUuid(playlistId, "Playlist ID");
+
+    if (!Array.isArray(videos) || videos.length === 0) {
+      return { added: 0 };
+    }
+
+    if (videos.length > LIMITS.maxPageSize * 2) {
+      throw new Error("That is too many videos to add at once.");
+    }
+
+    const { client } = await getContext();
+
+    const latest = await execute(
+      client
+        .from(TABLES.playlistItems)
+        .select("position")
+        .eq("playlist_id", playlistId)
+        .order("position", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      "Unable to prepare this playlist."
+    );
+
+    let position = Number.isInteger(latest?.position) ? latest.position + 1 : 0;
+
+    const seen = new Set();
+    const rows = [];
+
+    for (const video of videos) {
+      let normalized;
+
+      try {
+        normalized = normalizeVideo(video);
+      } catch {
+        continue; // skip entries that cannot be stored
+      }
+
+      if (seen.has(normalized.video_id)) continue;
+
+      seen.add(normalized.video_id);
+      rows.push({
+        playlist_id: playlistId,
+        ...normalized,
+        position: position++
+      });
+    }
+
+    for (let offset = 0; offset < rows.length; offset += 100) {
+      await execute(
+        client
+          .from(TABLES.playlistItems)
+          .upsert(rows.slice(offset, offset + 100), {
+            onConflict: "playlist_id,video_id",
+            ignoreDuplicates: true
+          }),
+        "Unable to add these videos to the playlist."
+      );
+    }
+
+    return { added: rows.length };
+  }
+
   async function removeFromPlaylist(itemId) {
     validateUuid(itemId, "Playlist item ID");
 
@@ -992,6 +1059,7 @@
 
     getPlaylistItems,
     addToPlaylist,
+    addManyToPlaylist,
     removeFromPlaylist,
     reorderPlaylistItem,
 

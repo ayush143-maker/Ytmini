@@ -67,14 +67,14 @@
       }),
       switchRow({
         title: "Clean controls",
-        copy: "Our own play, seek and mute bar. Off brings back YouTube's controls.",
-        checked: store.get("ayutube.clean", true) !== false,
+        copy: "Our own play, seek and mute bar under the video. Off keeps YouTube's controls.",
+        checked: store.get("ayutube.clean", false) === true,
         onChange: (on) => {
           store.set("ayutube.clean", on);
           notify(
             on
               ? "Clean controls on. From the next video."
-              : "YouTube controls on. From the next video."
+              : "YouTube controls back. From the next video."
           );
         }
       })

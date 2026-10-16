@@ -11,7 +11,7 @@
 
   const state = {
     view: "explore", // explore | library | account
-    pane: "browse", // browse | watch | channel (only meaningful inside explore)
+    pane: "browse", // browse | watch | channel | playlist (only meaningful inside explore)
     browse: "feed", // feed | results
     category: null,
     feedKey: "",
@@ -23,7 +23,13 @@
     user: null,
     lastQuery: "",
     lastItems: [],
-    durationFilter: "any"
+    durationFilter: "any",
+    searchTab: "all", // all | videos | playlists | channels
+    searchQuery: "", // the exact query sent to the search service
+    lastPlaylists: [],
+    lastChannels: [],
+    searchNext: { video: null, playlist: null, channel: null },
+    secondary: { playlist: "idle", channel: "idle" } // idle | loading | done | failed
   };
 
   const scriptPromises = new Map();
@@ -576,6 +582,8 @@
         leaveWatch();
       } else if (state.pane === "channel") {
         leaveChannel();
+      } else if (state.pane === "playlist") {
+        leavePlaylist();
       } else if (state.browse === "results") {
         showFeed();
       }
@@ -629,7 +637,8 @@
     const explore = state.view === "explore";
     const watching = explore && state.pane === "watch";
     const onChannel = explore && state.pane === "channel";
-    const browsing = explore && !watching && !onChannel;
+    const onPlaylist = explore && state.pane === "playlist";
+    const browsing = explore && !watching && !onChannel && !onPlaylist;
 
     const toggle = (selector, visible) => {
       const node = $(selector);
@@ -643,6 +652,7 @@
     toggle("#results", browsing && state.browse === "results");
     toggle("#player-panel", watching);
     toggle("#channel-pane", onChannel);
+    toggle("#playlist-pane", onPlaylist);
     toggle("#ayutube-library-view", state.view === "library");
     toggle("#ayutube-account-view", state.view === "account");
 
@@ -714,7 +724,7 @@
    * Show the watch page. Called by watch.js right before playback starts.
    * `entry: true` marks a page opened straight from a shared link.
    */
-  function showWatch(video, { push = true, entry = false } = {}) {
+  function showWatch(video, { push = true, entry = false, list = "" } = {}) {
     rememberOrigin();
     state.view = "explore";
     state.pane = "watch";
@@ -725,10 +735,13 @@
         id: video.id,
         title: video.title,
         channel: video.uploaderName,
-        thumbnail: video.thumbnail
+        thumbnail: video.thumbnail,
+        list: list || ""
       };
 
-      const url = `/?v=${encodeURIComponent(video.id)}`;
+      const url =
+        `/?v=${encodeURIComponent(video.id)}` +
+        (list ? `&list=${encodeURIComponent(list)}` : "");
       const current = history.state;
 
       if (entry) {
@@ -784,6 +797,24 @@
       return;
     }
 
+    if (entry?.ayu === "playlist" && entry.id) {
+      state.view = "explore";
+      state.pane = "playlist";
+
+      const open = window.AyuTubePlaylist?.current?.();
+
+      if (open && open.id === entry.id) {
+        applyLayout();
+      } else {
+        window.AyuTubePlaylist?.open?.(
+          { id: entry.id, name: entry.name || "" },
+          { fromHistory: true }
+        );
+      }
+
+      return;
+    }
+
     if (entry?.ayu === "watch" && entry.id) {
       state.view = "explore";
       state.pane = "watch";
@@ -800,7 +831,7 @@
             uploaderName: entry.channel || "",
             thumbnail: entry.thumbnail || ""
           },
-          { fromHistory: true }
+          { fromHistory: true, list: entry.list || "" }
         );
       }
 
@@ -850,6 +881,50 @@
     window.AyuTubeChannel?.close?.();
 
     if (current?.ayu === "channel") {
+      if (current.entry) {
+        history.replaceState({}, "", location.pathname);
+        finishLeave();
+      } else {
+        history.back(); // popstate applies the layout
+      }
+
+      return;
+    }
+
+    finishLeave();
+  }
+
+  /** Show a playlist page. Called by playlist.js before it loads the videos. */
+  function showPlaylist(playlist, { push = true, entry = false } = {}) {
+    rememberOrigin();
+    state.view = "explore";
+    state.pane = "playlist";
+
+    if (push || entry) {
+      const record = { ayu: "playlist", id: playlist.id, name: playlist.name || "" };
+      const url = `/?list=${encodeURIComponent(playlist.id)}`;
+      const current = history.state;
+
+      if (entry) {
+        history.replaceState({ ...record, entry: true }, "", url);
+      } else if (current?.ayu === "playlist" && current.id === record.id) {
+        history.replaceState({ ...record, entry: Boolean(current.entry) }, "", url);
+      } else {
+        history.pushState(record, "", url);
+      }
+    }
+
+    applyLayout();
+    window.scrollTo({ top: 0 });
+  }
+
+  /** Leave the playlist page and return to whatever opened it. */
+  function leavePlaylist() {
+    const current = history.state;
+
+    window.AyuTubePlaylist?.close?.();
+
+    if (current?.ayu === "playlist") {
       if (current.entry) {
         history.replaceState({}, "", location.pathname);
         finishLeave();
@@ -1089,6 +1164,31 @@
     { id: "long", label: "Over 20 min" }
   ]);
 
+  // ---------------------------------------------------------------------------
+  // Search results: All, Videos, Playlists and Channels
+  // ---------------------------------------------------------------------------
+
+  const SEARCH_TABS = Object.freeze([
+    { id: "all", label: "All" },
+    { id: "videos", label: "Videos" },
+    { id: "playlists", label: "Playlists" },
+    { id: "channels", label: "Channels" }
+  ]);
+
+  const KIND_OF_TAB = Object.freeze({
+    videos: "video",
+    playlists: "playlist",
+    channels: "channel"
+  });
+
+  let resultsObserver = null;
+
+  const playlistHidden = (playlist) =>
+    isBlocked({ channelId: playlist.channelId, uploaderName: playlist.uploaderName });
+
+  const channelHidden = (channel) =>
+    isBlocked({ channelId: channel.id, uploaderName: channel.name });
+
   function matchesDuration(video, filter) {
     if (filter === "any") return true;
     if (!video.duration) return false;
@@ -1098,21 +1198,299 @@
     return video.duration > 1200;
   }
 
+  function nextToken(response) {
+    return typeof response?.nextpage === "string" && response.nextpage
+      ? response.nextpage
+      : null;
+  }
+
+  /** Load the next page of one kind of result. Returns the items added. */
+  async function loadMoreResults(kind) {
+    const page = state.searchNext[kind];
+
+    if (!page) return [];
+
+    const requestId = state.searchRequestId;
+    const api = await ensureApi();
+    const response = await api.search(state.searchQuery, { type: kind, page });
+
+    if (requestId !== state.searchRequestId) return [];
+
+    state.searchNext[kind] = nextToken(response);
+
+    const raw = Array.isArray(response?.items) ? response.items : [];
+    const added = [];
+
+    if (kind === "video") {
+      const seen = new Set(state.lastItems.map((video) => video.id));
+
+      for (const item of raw) {
+        const video = toVideo(item);
+
+        if (!validVideoId(video.id) || seen.has(video.id) || isBlocked(video)) continue;
+
+        seen.add(video.id);
+        added.push(video);
+      }
+
+      state.lastItems.push(...added);
+    } else {
+      const list = kind === "playlist" ? state.lastPlaylists : state.lastChannels;
+      const hidden = kind === "playlist" ? playlistHidden : channelHidden;
+      const seen = new Set(list.map((item) => item.id));
+
+      for (const item of raw) {
+        if (!item?.id || seen.has(item.id) || hidden(item)) continue;
+
+        seen.add(item.id);
+        added.push(item);
+      }
+
+      list.push(...added);
+    }
+
+    return added;
+  }
+
+  /** "Show more" button plus automatic loading when the end comes into view. */
+  function attachResultsMore(body, kind, onAdded) {
+    if (!state.searchNext[kind]) return;
+
+    const button = makeButton("Show more", "ay-action");
+    const message = element("p", "feed-note");
+    const sentinel = element("div", "feed-sentinel");
+    const footer = element("div", "feed-more");
+
+    message.hidden = true;
+    footer.append(button, message);
+    body.append(footer, sentinel);
+
+    let loading = false;
+
+    async function more() {
+      if (loading || !state.searchNext[kind]) return;
+
+      loading = true;
+      button.disabled = true;
+      message.hidden = true;
+
+      try {
+        const added = await loadMoreResults(kind);
+
+        // The results were redrawn while this page loaded (for example when
+        // playlists and channels arrived): draw again from the saved state
+        // instead of adding to a list that is no longer on the screen.
+        if (!body.isConnected) {
+          renderResults();
+          return;
+        }
+
+        onAdded(added);
+
+        if (!state.searchNext[kind]) {
+          footer.hidden = true;
+          resultsObserver?.disconnect();
+        }
+      } catch (error) {
+        message.textContent = error?.message || "Could not load more.";
+        message.hidden = false;
+      } finally {
+        loading = false;
+        button.disabled = false;
+
+        if (resultsObserver && state.searchNext[kind]) {
+          resultsObserver.unobserve(sentinel);
+          resultsObserver.observe(sentinel);
+        }
+      }
+    }
+
+    button.addEventListener("click", more);
+
+    if ("IntersectionObserver" in window) {
+      resultsObserver = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) more();
+        },
+        { rootMargin: "800px 0px" }
+      );
+
+      resultsObserver.observe(sentinel);
+    }
+  }
+
+  function videoSection(body, countLine) {
+    const items = state.lastItems;
+    const hasDurations = items.some((video) => video.duration > 0);
+
+    if (hasDurations) {
+      const filters = element("div", "filter-row");
+      filters.setAttribute("role", "group");
+      filters.setAttribute("aria-label", "Filter by length");
+
+      for (const filter of DURATION_FILTERS) {
+        const button = makeButton(filter.label, "ay-chip", () => {
+          state.durationFilter = filter.id;
+          renderResults();
+        });
+
+        button.setAttribute("aria-pressed", String(state.durationFilter === filter.id));
+        filters.append(button);
+      }
+
+      body.append(filters);
+    }
+
+    const visible = items.filter((video) => matchesDuration(video, state.durationFilter));
+
+    if (countLine) {
+      countLine.textContent = `${visible.length} video${visible.length === 1 ? "" : "s"}`;
+    }
+
+    if (!visible.length) {
+      body.append(
+        element(
+          "div",
+          "ay-empty",
+          items.length ? "Nothing in this length range." : "No videos found."
+        )
+      );
+      return;
+    }
+
+    const grid = element("div", "grid");
+
+    const addVideos = (videos) => {
+      for (const video of videos) {
+        if (!matchesDuration(video, state.durationFilter)) continue;
+
+        grid.append(
+          window.AyuTubeCards.createCard(video, {
+            variant: "grid",
+            progress: personalData.map.get(video.id) || null
+          })
+        );
+      }
+    };
+
+    addVideos(visible);
+    body.append(grid);
+    attachResultsMore(body, "video", addVideos);
+  }
+
+  function secondaryEmpty(kind, label) {
+    const status = state.secondary[kind];
+
+    if (status === "loading" || status === "idle") return `Looking for ${label}\u2026`;
+    if (status === "failed") return `Could not load ${label}. Try searching again.`;
+
+    return `No ${label} found.`;
+  }
+
+  function playlistSection(body) {
+    if (!state.lastPlaylists.length) {
+      body.append(element("div", "ay-empty", secondaryEmpty("playlist", "playlists")));
+      return;
+    }
+
+    const grid = element("div", "grid");
+    const add = (items) => {
+      for (const playlist of items) {
+        grid.append(window.AyuTubeCards.createPlaylistCard(playlist));
+      }
+    };
+
+    add(state.lastPlaylists);
+    body.append(grid);
+    attachResultsMore(body, "playlist", add);
+  }
+
+  function channelSection(body) {
+    if (!state.lastChannels.length) {
+      body.append(element("div", "ay-empty", secondaryEmpty("channel", "channels")));
+      return;
+    }
+
+    const list = element("div", "ccard-list");
+    const add = (items) => {
+      for (const channel of items) {
+        list.append(window.AyuTubeCards.createChannelCard(channel));
+      }
+    };
+
+    add(state.lastChannels);
+    body.append(list);
+    attachResultsMore(body, "channel", add);
+  }
+
+  function stripHead(title, tabId) {
+    const head = element("div", "section-head");
+
+    head.append(
+      element("h2", "", title),
+      makeButton("See all", "ay-chip", () => {
+        state.searchTab = tabId;
+        renderResults();
+      })
+    );
+
+    return head;
+  }
+
+  function allSection(body, countLine) {
+    const channels = state.lastChannels.slice(0, 2);
+    const playlists = state.lastPlaylists.slice(0, 4);
+
+    if (channels.length) {
+      const section = element("section", "results-strip");
+      const list = element("div", "ccard-list");
+
+      for (const channel of channels) {
+        list.append(window.AyuTubeCards.createChannelCard(channel));
+      }
+
+      section.append(stripHead("Channels", "channels"), list);
+      body.append(section);
+    }
+
+    if (playlists.length) {
+      const section = element("section", "results-strip");
+      const grid = element("div", "grid");
+
+      for (const playlist of playlists) {
+        grid.append(window.AyuTubeCards.createPlaylistCard(playlist));
+      }
+
+      section.append(stripHead("Playlists", "playlists"), grid);
+      body.append(section);
+    }
+
+    const videos = element("section", "results-strip");
+
+    if (channels.length || playlists.length) {
+      const head = element("div", "section-head");
+
+      head.append(element("h2", "", "Videos"));
+      videos.append(head);
+    }
+
+    videoSection(videos, countLine);
+    body.append(videos);
+  }
+
   function renderResults() {
     const container = $("#results");
     if (!container) return;
 
-    container.replaceChildren();
+    resultsObserver?.disconnect();
+    resultsObserver = null;
 
-    const items = state.lastItems;
-    const hasDurations = items.some((video) => video.duration > 0);
+    container.replaceChildren();
 
     const head = element("header", "results-head");
     const titleBlock = element("div");
 
-    titleBlock.append(
-      element("h2", "results-title", state.lastQuery)
-    );
+    titleBlock.append(element("h2", "results-title", state.lastQuery));
 
     const countLine = element("p", "results-count");
     titleBlock.append(countLine);
@@ -1126,58 +1504,80 @@
     head.append(titleBlock, clear);
     container.append(head);
 
-    if (hasDurations) {
-      const filters = element("div", "filter-row");
-      filters.setAttribute("role", "group");
-      filters.setAttribute("aria-label", "Filter by length");
+    const tabs = element("div", "filter-row results-tabs");
+    tabs.setAttribute("role", "group");
+    tabs.setAttribute("aria-label", "Result type");
 
-      for (const filter of DURATION_FILTERS) {
-        const button = makeButton(filter.label, "ay-chip", () => {
-          state.durationFilter = filter.id;
-          renderResults();
-        });
+    for (const tab of SEARCH_TABS) {
+      const button = makeButton(tab.label, "ay-chip", () => {
+        state.searchTab = tab.id;
+        renderResults();
+      });
 
-        button.setAttribute(
-          "aria-pressed",
-          String(state.durationFilter === filter.id)
-        );
-        filters.append(button);
-      }
-
-      container.append(filters);
+      button.setAttribute("aria-pressed", String(state.searchTab === tab.id));
+      tabs.append(button);
     }
 
-    const visible = items.filter((video) =>
-      matchesDuration(video, state.durationFilter)
-    );
+    container.append(tabs);
 
-    countLine.textContent = `${visible.length} video${visible.length === 1 ? "" : "s"}`;
+    const body = element("div", "results-body");
 
-    if (!visible.length) {
-      container.append(
-        element(
-          "div",
-          "ay-empty",
-          items.length
-            ? "Nothing in this length range."
-            : "No videos found."
-        )
-      );
-      return;
+    container.append(body);
+
+    if (state.searchTab === "playlists") {
+      countLine.textContent = state.lastPlaylists.length
+        ? `${state.lastPlaylists.length} playlist${state.lastPlaylists.length === 1 ? "" : "s"}`
+        : "";
+      playlistSection(body);
+    } else if (state.searchTab === "channels") {
+      countLine.textContent = state.lastChannels.length
+        ? `${state.lastChannels.length} channel${state.lastChannels.length === 1 ? "" : "s"}`
+        : "";
+      channelSection(body);
+    } else if (state.searchTab === "videos") {
+      videoSection(body, countLine);
+    } else {
+      allSection(body, countLine);
     }
+  }
 
-    const grid = element("div", "grid");
+  /** Playlists and channels load after the videos, so videos appear first. */
+  function loadSecondaryResults(query, requestId) {
+    for (const kind of ["channel", "playlist"]) {
+      state.secondary[kind] = "loading";
 
-    for (const video of visible) {
-      grid.append(
-        window.AyuTubeCards.createCard(video, {
-          variant: "grid",
-          progress: personalData.map.get(video.id) || null
+      ensureApi()
+        .then((api) => api.search(query, { type: kind }))
+        .then((response) => {
+          if (requestId !== state.searchRequestId) return;
+
+          const raw = Array.isArray(response?.items) ? response.items : [];
+
+          if (kind === "playlist") {
+            state.lastPlaylists = raw.filter((item) => item?.id && !playlistHidden(item));
+          } else {
+            state.lastChannels = raw.filter((item) => item?.id && !channelHidden(item));
+          }
+
+          state.searchNext[kind] = nextToken(response);
+          state.secondary[kind] = "done";
         })
-      );
-    }
+        .catch(() => {
+          if (requestId !== state.searchRequestId) return;
 
-    container.append(grid);
+          state.secondary[kind] = "failed";
+        })
+        .finally(() => {
+          if (requestId !== state.searchRequestId) return;
+          if (!(state.view === "explore" && state.pane === "browse" && state.browse === "results")) return;
+
+          // Redraw only when it will not move what the person is reading.
+          const tabKind = KIND_OF_TAB[state.searchTab];
+          const quiet = state.searchTab === "all" && window.scrollY < 300;
+
+          if (quiet || tabKind === kind) renderResults();
+        });
+    }
   }
 
   async function runSearch(rawQuery, { useCategoryContext = true } = {}) {
@@ -1212,7 +1612,13 @@
     state.pane = "browse";
     state.browse = "results";
     state.lastQuery = queryText;
+    state.searchQuery = query;
     state.durationFilter = "any";
+    state.searchTab = "all";
+    state.lastPlaylists = [];
+    state.lastChannels = [];
+    state.searchNext = { video: null, playlist: null, channel: null };
+    state.secondary = { playlist: "idle", channel: "idle" };
 
     if (input) input.value = queryText;
     if (button) button.disabled = true;
@@ -1255,8 +1661,11 @@
       }
 
       state.lastItems = items;
+      state.searchNext.video = nextToken(response);
       renderResults();
       window.AyuTubeSearchUI?.learn?.(items);
+
+      loadSecondaryResults(query, requestId);
     } catch (error) {
       if (requestId !== state.searchRequestId) return;
 
@@ -1493,6 +1902,9 @@
     leaveWatch,
     showChannel,
     leaveChannel,
+    showPlaylist,
+    leavePlaylist,
+    openPlaylist: (playlist, options) => window.AyuTubePlaylist?.open?.(playlist, options),
     openChannel: (channel, options) => window.AyuTubeChannel?.open?.(channel, options),
     markChannelSeen,
     isNewSince,
@@ -1527,6 +1939,7 @@
       addToPlaylist,
       copyLink,
       openChannel: (channel) => window.AyuTubeChannel?.open?.(channel),
+      openPlaylist: (playlist) => window.AyuTubePlaylist?.open?.(playlist),
       extraItems: (video) => {
         if (typeof window.AyuTubeLibrary?.setChannelPref !== "function") {
           return [];
@@ -1551,8 +1964,15 @@
   function openFromLink() {
     const params = new URLSearchParams(location.search);
     const id = params.get("v");
+    const listId = params.get("list");
+    const listOk = window.AyuTubePlaylist?.isPlaylistId?.(listId);
 
     if (!id || !validVideoId(id)) {
+      if (listOk) {
+        window.AyuTubePlaylist.open({ id: listId, name: "" }, { entry: true });
+        return true;
+      }
+
       const channelId = params.get("c");
 
       if (channelId && window.AyuTubeChannel?.isChannelId?.(channelId)) {
@@ -1567,7 +1987,8 @@
 
     window.AyuTubeWatch?.openById?.(id, {
       start: Number.isFinite(start) && start > 0 ? start : 0,
-      entry: true
+      entry: true,
+      list: listOk ? listId : ""
     });
 
     return true;

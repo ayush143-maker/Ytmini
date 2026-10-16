@@ -5,6 +5,7 @@
   const CONFIG = Object.freeze({
     searchEndpoint: "/api/search",
     streamsEndpoint: "/api/streams",
+    playlistEndpoint: "/api/playlist",
     searchTimeoutMs: 20000,
     streamsTimeoutMs: 20000,
     maxSearchLength: 200,
@@ -255,6 +256,15 @@
       q: normalizedQuery
     });
 
+    // type: "video" (default) | "playlist" | "channel"; page: a nextpage token.
+    if (options.type && options.type !== "video") {
+      params.set("type", String(options.type));
+    }
+
+    if (typeof options.page === "string" && options.page) {
+      params.set("page", options.page);
+    }
+
     const payload = await request(
       `${CONFIG.searchEndpoint}?${params.toString()}`,
       {
@@ -272,6 +282,38 @@
         "The search service returned an invalid results list.",
         { code: "INVALID_SEARCH_RESULTS" }
       );
+    }
+
+    return payload;
+  }
+
+  async function playlist(id, options = {}) {
+    const clean = String(id || "").trim();
+
+    if (!/^[A-Za-z0-9_-]{10,64}$/.test(clean)) {
+      throw new ApiError("This playlist has an invalid ID.", {
+        code: "INVALID_PLAYLIST_ID"
+      });
+    }
+
+    const params = new URLSearchParams({ id: clean });
+
+    if (typeof options.page === "string" && options.page) {
+      params.set("page", options.page);
+    }
+
+    const payload = await request(
+      `${CONFIG.playlistEndpoint}?${params.toString()}`,
+      {
+        timeoutMs: CONFIG.searchTimeoutMs,
+        signal: options.signal
+      }
+    );
+
+    if (!Array.isArray(payload.items)) {
+      throw new ApiError("The playlist service returned invalid data.", {
+        code: "INVALID_PLAYLIST"
+      });
     }
 
     return payload;
@@ -305,6 +347,7 @@
 
   const api = Object.freeze({
     search,
+    playlist,
     streams,
     ApiError
   });
