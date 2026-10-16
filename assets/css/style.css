@@ -905,12 +905,20 @@ body.has-now-playing .toast {
   }
 }
 
-/* Compact: thumbnail beside text. */
+/* Compact: thumbnail beside text. Keep the action column narrow on phones so
+   titles have room and rows stay aligned without pushing the menu off-screen. */
 
 .vcard--compact {
-  grid-template-columns: 168px minmax(0, 1fr) auto;
+  grid-template-columns: clamp(112px, 38vw, 168px) minmax(0, 1fr) 28px;
   grid-template-areas: "media body more";
-  column-gap: 12px;
+  column-gap: 10px;
+  align-items: start;
+}
+
+.vcard--compact .vcard-more {
+  width: 28px;
+  height: 32px;
+  margin-right: 0;
 }
 
 .vcard--compact .vcard-title {
@@ -926,9 +934,14 @@ body.has-now-playing .toast {
   font-size: 12px;
 }
 
-@media (max-width: 380px) {
+@media (min-width: 640px) {
   .vcard--compact {
-    grid-template-columns: 132px minmax(0, 1fr) auto;
+    grid-template-columns: 168px minmax(0, 1fr) 32px;
+    column-gap: 12px;
+  }
+
+  .vcard--compact .vcard-more {
+    width: 32px;
   }
 }
 
@@ -1698,10 +1711,14 @@ body.has-now-playing .toast {
   position: absolute;
   top: 0;
   left: 0;
-  padding: 3px 8px;
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  padding: 2px 5px;
+  line-height: 1;
   background: var(--pink);
   color: var(--ink);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
 }
 
@@ -2158,8 +2175,16 @@ body.has-now-playing .toast {
 }
 
 .vcard.is-current {
-  outline: 2px solid var(--pink);
-  outline-offset: -2px;
+  /* Keep the active row easy to find without the heavy full-card box. */
+  outline: none;
+  background: rgba(251, 42, 95, 0.055);
+  box-shadow: inset 3px 0 0 var(--pink);
+}
+
+#playlist-pane .playlist-title {
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  padding-block: 0.04em;
 }
 
 .channel-tabs {
