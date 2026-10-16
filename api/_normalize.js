@@ -11,7 +11,10 @@ const LIMITS = Object.freeze({
   maxAgeTextLength: 40,
   maxDurationSeconds: 60 * 60 * 24 * 7,
   videoIdPattern: /^[A-Za-z0-9_-]{6,20}$/,
-  channelIdPattern: /\/channel\/([A-Za-z0-9_-]{10,40})(?:$|[/?#])/
+  channelIdPattern: /\/channel\/([A-Za-z0-9_-]{10,40})(?:$|[/?#])/,
+  playlistIdPattern: /[?&]list=([A-Za-z0-9_-]{10,64})(?=$|[&#])/,
+  maxPlaylistNameLength: 200,
+  maxDescriptionLength: 300
 });
 
 function text(value, maxLength, fallback = "") {
@@ -153,4 +156,70 @@ function normalizeResult(item) {
   };
 }
 
-module.exports = { normalizeResult, secureUrl: secureThumbnail, text, wholeNumber, LIMITS };
+/** Playlist id from a provider item such as { url: "/playlist?list=PL..." }. */
+function getPlaylistId(item) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+
+  const url = typeof item.url === "string" ? item.url : "";
+  const match = url.match(LIMITS.playlistIdPattern);
+
+  return match?.[1] || "";
+}
+
+/** Channel id from a provider item such as { url: "/channel/UC..." }. */
+function getChannelRef(item) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+
+  const url = typeof item.url === "string" ? item.url : "";
+  const match = url.match(LIMITS.channelIdPattern);
+
+  return match?.[1] || "";
+}
+
+/** Public shape of one playlist search result, or null. */
+function normalizePlaylist(item) {
+  const id = getPlaylistId(item);
+
+  if (!id) return null;
+
+  return {
+    id,
+    name: text(
+      item.name || item.title,
+      LIMITS.maxPlaylistNameLength,
+      "Untitled playlist"
+    ),
+    thumbnail: secureThumbnail(item.thumbnail || item.thumbnailUrl),
+    uploaderName: text(
+      item.uploaderName || item.uploader,
+      LIMITS.maxChannelLength
+    ),
+    channelId: getChannelId(item),
+    // null when the provider does not know (it may report -1).
+    count: wholeNumber(item.videos ?? item.videoCount)
+  };
+}
+
+/** Public shape of one channel search result, or null. */
+function normalizeChannel(item) {
+  const id = getChannelRef(item);
+
+  if (!id) return null;
+
+  return {
+    id,
+    name: text(item.name, LIMITS.maxChannelLength, "Unknown channel"),
+    thumbnail: secureThumbnail(item.thumbnail || item.avatarUrl),
+    description: text(item.description, LIMITS.maxDescriptionLength),
+    subscribers: wholeNumber(item.subscribers),
+    videos: wholeNumber(item.videos),
+    verified: item.verified === true
+  };
+}
+
+module.exports = {
+  getPlaylistId,
+  getChannelRef,
+  normalizePlaylist,
+  normalizeChannel,
+  normalizeResult, secureUrl: secureThumbnail, text, wholeNumber, LIMITS };

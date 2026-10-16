@@ -19,6 +19,10 @@ const DEFAULT_INSTANCES = [
   "https://pipedapi.orangenet.cc"
 ];
 
+const { getPlaylistId, getChannelRef } = require("./_normalize");
+
+const SEARCH_FILTERS = new Set(["videos", "playlists", "channels"]);
+
 const CONFIG = Object.freeze({
   batchSize: 5,
   timeoutMs: 2100,
@@ -105,11 +109,37 @@ function validatePath(path) {
       !keys.includes("q") ||
       !keys.includes("filter") ||
       !query ||
-      filter !== "videos" ||
+      !SEARCH_FILTERS.has(filter) ||
       url.searchParams.getAll("q").length !== 1 ||
       url.searchParams.getAll("filter").length !== 1
     ) {
       throw new Error("Invalid search provider request.");
+    }
+
+    return url.pathname + url.search;
+  }
+
+  // Later pages of a search: opaque token plus the same q and filter.
+  if (url.pathname === "/nextpage/search") {
+    const keys = [...url.searchParams.keys()];
+    const query = url.searchParams.get("q");
+    const filter = url.searchParams.get("filter");
+    const token = url.searchParams.get("nextpage");
+
+    if (
+      keys.length !== 3 ||
+      !keys.includes("q") ||
+      !keys.includes("filter") ||
+      !keys.includes("nextpage") ||
+      !query ||
+      !SEARCH_FILTERS.has(filter) ||
+      !token ||
+      token.length > 4000 ||
+      url.searchParams.getAll("q").length !== 1 ||
+      url.searchParams.getAll("filter").length !== 1 ||
+      url.searchParams.getAll("nextpage").length !== 1
+    ) {
+      throw new Error("Invalid search page request.");
     }
 
     return url.pathname + url.search;
@@ -148,6 +178,55 @@ function validatePath(path) {
       token.length > 4000
     ) {
       throw new Error("Invalid channel page request.");
+    }
+
+    return url.pathname + url.search;
+  }
+
+  // Playlists: first page, and later pages by opaque token.
+  const playlistMatch = url.pathname.match(
+    /^\/playlists\/([A-Za-z0-9_-]{10,64})$/
+  );
+
+  if (playlistMatch && !url.search) {
+    return url.pathname;
+  }
+
+  const playlistPageMatch = url.pathname.match(
+    /^\/nextpage\/playlists\/([A-Za-z0-9_-]{10,64})$/
+  );
+
+  if (playlistPageMatch) {
+    const keys = [...url.searchParams.keys()];
+    const token = url.searchParams.get("nextpage");
+
+    if (
+      keys.length !== 1 ||
+      keys[0] !== "nextpage" ||
+      url.searchParams.getAll("nextpage").length !== 1 ||
+      !token ||
+      token.length > 4000
+    ) {
+      throw new Error("Invalid playlist page request.");
+    }
+
+    return url.pathname + url.search;
+  }
+
+  // A channel tab (for example its playlists). `data` is the opaque value the
+  // channel response gave for that tab.
+  if (url.pathname === "/channels/tabs") {
+    const keys = [...url.searchParams.keys()];
+    const data = url.searchParams.get("data");
+
+    if (
+      keys.length !== 1 ||
+      keys[0] !== "data" ||
+      url.searchParams.getAll("data").length !== 1 ||
+      !data ||
+      data.length > 4000
+    ) {
+      throw new Error("Invalid channel tab request.");
     }
 
     return url.pathname + url.search;
@@ -222,8 +301,47 @@ function isChannelPath(path) {
   return path.startsWith("/channel/") || path.startsWith("/nextpage/channel/");
 }
 
+function isSearchPath(path) {
+  return path.startsWith("/search") || path.startsWith("/nextpage/search");
+}
+
+function isPlaylistPath(path) {
+  return (
+    path.startsWith("/playlists/") || path.startsWith("/nextpage/playlists/")
+  );
+}
+
+function isTabPath(path) {
+  return path.startsWith("/channels/tabs");
+}
+
+function searchFilter(path) {
+  try {
+    return new URL(path, "https://internal.invalid").searchParams.get("filter");
+  } catch {
+    return "";
+  }
+}
+
+/** True when a search item matches the kind of search that was requested. */
+function searchItemMatches(filter, item) {
+  if (filter === "playlists") return Boolean(getPlaylistId(item));
+  if (filter === "channels") return Boolean(getChannelRef(item));
+
+  return Boolean(extractVideoId(item));
+}
+
+function hasUsableSearchResults(path, items) {
+  const filter = searchFilter(path);
+
+  return (
+    Array.isArray(items) &&
+    items.some((item) => searchItemMatches(filter, item))
+  );
+}
+
 function validatePayload(path, data) {
-  if (path.startsWith("/search")) {
+  if (isSearchPath(path)) {
     const items = getSearchItems(data);
 
     if (!items) {
@@ -250,28 +368,46 @@ function validatePayload(path, data) {
     }
   }
 
-  if (isChannelPath(path)) {
+  if (isChannelPath(path) || isPlaylistPath(path)) {
     if (
       !data ||
       typeof data !== "object" ||
       Array.isArray(data) ||
       !Array.isArray(data.relatedStreams)
     ) {
-      throw new Error("Provider returned an invalid channel response.");
+      throw new Error("Provider returned an invalid channel or playlist response.");
+    }
+  }
+
+  if (isTabPath(path)) {
+    if (
+      !data ||
+      typeof data !== "object" ||
+      Array.isArray(data) ||
+      !Array.isArray(data.content)
+    ) {
+      throw new Error("Provider returned an invalid channel tab response.");
     }
   }
 }
 
 function isUsableResponse(path, data) {
-  if (path.startsWith("/search")) {
-    return hasUsableSearchItems(getSearchItems(data));
+  if (isSearchPath(path)) {
+    return hasUsableSearchResults(path, getSearchItems(data));
+  }
+
+  if (isTabPath(path)) {
+    return (
+      Array.isArray(data.content) &&
+      data.content.some((item) => Boolean(getPlaylistId(item)))
+    );
   }
 
   if (path.startsWith("/streams/")) {
     return hasUsableStreams(data.videoStreams);
   }
 
-  if (isChannelPath(path)) {
+  if (isChannelPath(path) || isPlaylistPath(path)) {
     return hasUsableSearchItems(data.relatedStreams);
   }
 
@@ -279,7 +415,7 @@ function isUsableResponse(path, data) {
 }
 
 function isValidEmptyResponse(path, data) {
-  if (path.startsWith("/search")) {
+  if (isSearchPath(path)) {
     const items = getSearchItems(data);
 
     return Array.isArray(items) && items.length === 0;
@@ -292,10 +428,17 @@ function isValidEmptyResponse(path, data) {
     );
   }
 
-  if (isChannelPath(path)) {
+  if (isChannelPath(path) || isPlaylistPath(path)) {
     return (
       Array.isArray(data?.relatedStreams) &&
       !hasUsableSearchItems(data.relatedStreams)
+    );
+  }
+
+  if (isTabPath(path)) {
+    return (
+      Array.isArray(data?.content) &&
+      !data.content.some((item) => Boolean(getPlaylistId(item)))
     );
   }
 

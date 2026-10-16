@@ -6,6 +6,7 @@
 const { piped } = require("./_piped");
 const {
   normalizeResult,
+  normalizePlaylist,
   secureUrl,
   text,
   wholeNumber
@@ -45,6 +46,65 @@ module.exports = async function handler(req, res) {
     res.setHeader("Cache-Control", "no-store");
 
     return res.status(400).json({ error: "Invalid page token." });
+  }
+
+  // The channel's playlists tab. The first channel response lists its tabs;
+  // the tab's own `data` value is then handed to the provider.
+  if (single(req.query.tab) === "playlists") {
+    try {
+      const first = await piped(`/channel/${id}`);
+      const tabs = Array.isArray(first.tabs) ? first.tabs : [];
+      const tab = tabs.find(
+        (entry) =>
+          entry &&
+          typeof entry.name === "string" &&
+          /playlist/i.test(entry.name) &&
+          typeof entry.data === "string" &&
+          entry.data
+      );
+
+      let playlists = [];
+
+      if (tab) {
+        const data = await piped(
+          `/channels/tabs?data=${encodeURIComponent(tab.data)}`
+        );
+        const seen = new Set();
+
+        for (const raw of data.content) {
+          const item = normalizePlaylist({
+            ...raw,
+            uploaderName:
+              raw?.uploaderName || text(first.name, CONFIG.maxNameLength)
+          });
+
+          if (!item || seen.has(item.id)) continue;
+
+          seen.add(item.id);
+          playlists.push(item);
+        }
+      }
+
+      res.setHeader(
+        "Cache-Control",
+        "public, s-maxage=600, stale-while-revalidate=3600"
+      );
+
+      // `source: "none"` tells the page to look for playlists another way.
+      return res.status(200).json({
+        id,
+        playlists,
+        source: tab ? "tab" : "none"
+      });
+    } catch (error) {
+      console.error("Channel playlists failed:", error?.details || error?.message || error);
+
+      res.setHeader("Cache-Control", "no-store");
+
+      return res.status(502).json({
+        error: "This channel's playlists are unavailable right now."
+      });
+    }
   }
 
   try {
@@ -87,6 +147,7 @@ module.exports = async function handler(req, res) {
       avatar: secureUrl(data.avatarUrl),
       verified: data.verified === true,
       subscribers: wholeNumber(data.subscriberCount),
+      verified: data.verified === true,
       items,
       nextpage:
         typeof data.nextpage === "string" &&
