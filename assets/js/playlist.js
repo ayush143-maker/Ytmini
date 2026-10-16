@@ -206,10 +206,17 @@
 
     root.replaceChildren();
 
+    // Some mobile browsers restore the old scroll offset after the pane swap.
+    // Re-anchor the playlist at the top after this frame so the Back button and
+    // first line of the title cannot sit underneath the status/browser chrome.
+    window.requestAnimationFrame(() => {
+      if (mine === token) window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    });
+
     root.append(ui.makeButton("Back", "ay-action", () => ui.leavePlaylist()));
 
     const header = el("div", "channel-head");
-    const title = el("h1", "channel-name", page.name || "Playlist");
+    const title = el("h1", "channel-name playlist-title", page.name || "Playlist");
 
     header.append(title);
     root.append(header);

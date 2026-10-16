@@ -126,7 +126,13 @@
       "Unknown channel";
 
     const duration = Number(item?.duration);
-    const views = Number(item?.views);
+    // A missing/null provider view count is unknown, not zero. Number(null)
+    // evaluates to 0, which previously made every playlist item show "0 views".
+    const rawViews = item?.views;
+    const views =
+      rawViews === null || rawViews === undefined || rawViews === ""
+        ? NaN
+        : Number(rawViews);
 
     return {
       id,
