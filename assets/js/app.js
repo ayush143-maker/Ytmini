@@ -562,14 +562,6 @@
       tab.setAttribute("aria-current", item.id === state.view ? "page" : "false");
       tab.append(iconSvg(ICONS[item.id]), element("span", "", item.label));
 
-      if (item.id === "library") {
-        const dot = element("i", "tab-dot");
-
-        dot.hidden = true;
-        dot.setAttribute("aria-hidden", "true");
-        tab.append(dot);
-      }
-
       tab.addEventListener("click", () => onTab(item.id));
       nav.append(tab);
     }
@@ -963,11 +955,9 @@
     window.AyuTubeFollowing?.recompute?.();
   }
 
-  function setLibraryDot(on) {
-    const dot = $('.ay-tab[data-view="library"] .tab-dot');
-
-    if (dot) dot.hidden = !on;
-  }
+  // The square on the Library tab was removed. Kept as a no-op because
+  // following.js still reports whether followed channels have new videos.
+  function setLibraryDot() {}
 
   function isNewSince(key, uploadedAt) {
     const seenAt = seenMap()[key];
