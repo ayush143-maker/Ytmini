@@ -776,18 +776,20 @@ body.has-now-playing .toast {
 
 .vcard-duration {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  padding: 3px 7px;
+  right: 5px;
+  bottom: 6px;
+  z-index: 2;
+  display: block;
+  max-width: calc(100% - 10px);
+  padding: 2px 5px;
   background: var(--ink);
   color: var(--paper);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 600;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
-}
-
-.vcard[data-watched] .vcard-duration {
-  bottom: 4px;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .vcard-progress {
@@ -795,6 +797,7 @@ body.has-now-playing .toast {
   left: 0;
   right: 0;
   bottom: 0;
+  z-index: 1;
   height: 4px;
   background: rgba(242, 242, 242, 0.3);
 }
