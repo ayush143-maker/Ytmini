@@ -80,6 +80,25 @@ module.exports = async function handler(req, res) {
     }
 
     const ownerMatch = ownerUrl.match(LIMITS.channelIdPattern);
+    const count = wholeNumber(data.videos);
+
+    // A first page with no videos, for a playlist that is not empty, means the
+    // video service failed to list them. Do not present that as "no videos".
+    if (!page && !items.length && count !== 0) {
+      console.error(
+        "Playlist lookup returned no videos:",
+        id,
+        "reported count:",
+        data.videos
+      );
+
+      res.setHeader("Cache-Control", "no-store");
+
+      return res.status(502).json({
+        error:
+          "The video service returned no videos for this playlist. It may be a temporary problem, try again later."
+      });
+    }
 
     res.setHeader(
       "Cache-Control",
@@ -93,7 +112,7 @@ module.exports = async function handler(req, res) {
       channelId: ownerMatch?.[1] || "",
       thumbnail: secureUrl(data.thumbnailUrl || data.thumbnail),
       // null when the provider does not report a count.
-      count: wholeNumber(data.videos),
+      count,
       items,
       nextpage:
         typeof data.nextpage === "string" &&
