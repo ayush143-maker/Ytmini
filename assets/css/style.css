@@ -2022,3 +2022,161 @@ body.has-now-playing .toast {
   aspect-ratio: auto;
   min-height: 0;
 }
+
+/* 22. Search tabs, playlists, channel cards ------------------------------- */
+
+.results-tabs {
+  margin-top: 18px;
+}
+
+.results-body {
+  margin-top: 24px;
+}
+
+.results-body > .grid,
+.results-body > .ccard-list {
+  margin-top: 0;
+}
+
+.results-body .filter-row + .grid,
+.results-body .filter-row {
+  margin-top: 18px;
+}
+
+.results-strip + .results-strip {
+  margin-top: 36px;
+}
+
+.results-strip .grid,
+.results-strip .ccard-list {
+  margin-top: 16px;
+}
+
+.results-strip .filter-row + .grid {
+  margin-top: 20px;
+}
+
+.pcard-stack {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding: 4px 10px;
+  background: #000;
+  color: var(--paper);
+  border-top: 1px solid var(--steel);
+  border-left: 1px solid var(--steel);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ccard-list {
+  display: grid;
+  gap: 1px;
+  background: var(--steel);
+  border: 1px solid var(--steel);
+}
+
+.ccard {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: #000;
+}
+
+.ccard-avatar {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 0;
+  background: var(--slate);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.ccard-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ccard-body {
+  min-width: 0;
+}
+
+.ccard-name {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--paper);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ccard-name:hover {
+  text-decoration: underline;
+}
+
+.ccard-meta {
+  margin-top: 4px;
+  color: var(--fog);
+  font-size: 13px;
+}
+
+.ccard-desc {
+  margin-top: 6px;
+  color: var(--fog);
+  font-size: 13px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.playlist-owner {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.playlist-progress {
+  margin-top: 4px;
+}
+
+.playlist-list {
+  margin-top: 28px;
+}
+
+.vcard.is-current {
+  outline: 2px solid var(--pink);
+  outline-offset: -2px;
+}
+
+.channel-tabs {
+  margin-top: 22px;
+}
+
+.channel-sort {
+  display: flex;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.channel-sort + .feed-note {
+  margin-top: 10px;
+}
+
+.channel-body > .feed-note:first-child {
+  margin-top: 18px;
+}
+
