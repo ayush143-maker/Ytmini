@@ -776,8 +776,8 @@ body.has-now-playing .toast {
 
 .vcard-duration {
   position: absolute;
-  right: 5px;
-  bottom: 6px;
+  right: 0;
+  bottom: 0;
   z-index: 2;
   display: block;
   max-width: calc(100% - 10px);
