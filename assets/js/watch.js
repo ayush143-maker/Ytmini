@@ -229,25 +229,52 @@
     open(target, { playlist: ctx });
   }
 
+  // Square icon buttons for Like, Save, Playlist and Share. Paths are drawn on
+  // a 24 x 24 grid; Like and Save fill in when they are switched on.
+  const SVG_NS = "http://www.w3.org/2000/svg";
+
+  const ICON_PATHS = Object.freeze({
+    like:
+      "M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z",
+    save: "M6 3.5h12V21l-6-4.5L6 21z",
+    playlist: "M4 6h11M4 12h7M4 18h7M17 13v8M13 17h8",
+    share: "M12 15V4M8 8l4-4 4 4M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7"
+  });
+
+  function iconButton(kind, label) {
+    const button = document.createElement("button");
+    const svg = document.createElementNS(SVG_NS, "svg");
+    const path = document.createElementNS(SVG_NS, "path");
+
+    button.type = "button";
+    button.className = `ay-action ay-icon ay-icon--${kind}`;
+    button.setAttribute("aria-label", label);
+    button.title = label;
+
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    path.setAttribute("d", ICON_PATHS[kind]);
+    svg.append(path);
+    button.append(svg);
+
+    return button;
+  }
+
   function renderActions(video) {
     const ui = UI();
     const box = $("#watch-actions");
+    const followSlot = $("#watch-follow");
 
     if (!box) return;
 
     box.replaceChildren();
+    followSlot?.replaceChildren();
 
-    if (playlistCtx) {
-      const api = getPlaylistApi();
-      const prev = ui.makeButton("Previous", "ay-action", () => step(-1));
-      const nextButton = ui.makeButton("Next", "ay-action", () => step(1));
+    // Row 1: Like, Save, Playlist, Share, each in its own box.
+    const icons = el("div", "watch-row watch-row--icons");
 
-      prev.disabled = api.indexOf(playlistCtx, video.id) <= 0;
-      nextButton.disabled = !api.hasNext(playlistCtx, video.id);
-      box.append(prev, nextButton);
-    }
-
-    const like = ui.makeButton("Like", "ay-action");
+    const like = iconButton("like", "Like");
 
     like.setAttribute("aria-pressed", String(ui.isLiked(video.id)));
     like.addEventListener("click", async () => {
@@ -259,22 +286,29 @@
 
       if (next !== null) like.setAttribute("aria-pressed", String(next));
     });
-    box.append(like);
 
-    box.append(
-      ui.makeButton("Save", "ay-action", () => ui.saveToWatchLater(video))
-    );
+    const save = iconButton("save", "Save to Watch Later");
 
-    const playlist = ui.makeButton("Playlist", "ay-action");
+    save.addEventListener("click", async () => {
+      save.disabled = true;
+
+      const saved = await ui.saveToWatchLater(video);
+
+      save.disabled = false;
+
+      // Only known for this visit: Watch Later is not read back on load.
+      if (saved === true) save.setAttribute("aria-pressed", "true");
+    });
+
+    const playlist = iconButton("playlist", "Add to playlist");
 
     playlist.setAttribute("aria-haspopup", "menu");
     playlist.setAttribute("aria-expanded", "false");
     playlist.addEventListener("click", () => {
       Cards().openMenu(playlist, video, { start: "playlists" });
     });
-    box.append(playlist);
 
-    const share = ui.makeButton("Share", "ay-action");
+    const share = iconButton("share", "Share");
 
     share.setAttribute("aria-haspopup", "menu");
     share.setAttribute("aria-expanded", "false");
@@ -301,9 +335,24 @@
 
       Cards().openActions(share, items);
     });
-    box.append(share);
 
-    const speed = ui.makeButton("", "ay-action");
+    icons.append(like, save, playlist, share);
+    box.append(icons);
+
+    // Row 2, under the icons: playlist steps, speed and Autoplay.
+    const controls = el("div", "watch-row watch-row--controls");
+
+    if (playlistCtx) {
+      const api = getPlaylistApi();
+      const prev = ui.makeButton("Previous", "ay-action", () => step(-1));
+      const nextButton = ui.makeButton("Next", "ay-action", () => step(1));
+
+      prev.disabled = api.indexOf(playlistCtx, video.id) <= 0;
+      nextButton.disabled = !api.hasNext(playlistCtx, video.id);
+      controls.append(prev, nextButton);
+    }
+
+    const speed = ui.makeButton("", "ay-action ay-speed");
     const label = () => `${getPlayer()?.getRate?.() ?? 1}\u00D7`;
 
     speed.textContent = label();
@@ -316,10 +365,10 @@
       ui.store.set("ayutube.rate", next);
       speed.textContent = label();
     });
-    box.append(speed);
+    controls.append(speed);
 
     if (!ui.isStudy()) {
-      const auto = ui.makeButton("Autoplay", "ay-action");
+      const auto = ui.makeButton("Autoplay", "ay-action ay-toggle");
 
       auto.setAttribute("aria-pressed", String(autoplayOn()));
       auto.addEventListener("click", () => {
@@ -328,13 +377,16 @@
         ui.store.set("ayutube.autoplay", next);
         auto.setAttribute("aria-pressed", String(next));
       });
-      box.append(auto);
+      controls.append(auto);
     }
 
+    box.append(controls);
+
+    // Follow sits beside the channel name.
     const following = ui.channelState(video) === "follow";
     const follow = ui.makeButton(
       following ? "Following" : "Follow",
-      "ay-action"
+      "ay-action ay-follow"
     );
 
     follow.setAttribute("aria-pressed", String(following));
@@ -344,7 +396,9 @@
 
       if (current?.id === video.id) renderActions(video);
     });
-    box.append(follow);
+
+    if (followSlot) followSlot.append(follow);
+    else controls.append(follow);
   }
 
   // ---------------------------------------------------------------------------

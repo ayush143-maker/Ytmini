@@ -1792,8 +1792,12 @@
       await ensureAuthModules();
       await window.AyuTubeLibrary.addToWatchLater(video);
       notify("Saved to Watch Later.");
+
+      return true;
     } catch (error) {
       notify(friendlyError(error, "Could not save this video."));
+
+      return false;
     }
   }
 
