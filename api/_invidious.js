@@ -49,16 +49,11 @@ function normalizeInstance(value) {
   }
 }
 
-function thumbnailOf(video) {
-  if (typeof video?.videoThumbnails === "string") return video.videoThumbnails;
-  if (!Array.isArray(video?.videoThumbnails)) return "";
-
-  // Prefer the higher-quality entries when present, but retain a valid URL
-  // even if an instance reports thumbnail quality labels in an unfamiliar way.
-  const ordered = [...video.videoThumbnails].sort((a, b) =>
-    (Number(b?.width) || 0) - (Number(a?.width) || 0)
-  );
-  return ordered.find((item) => typeof item?.url === "string")?.url || "";
+// Invidious instances sometimes return relative or http thumbnail addresses,
+// which the app rejects. YouTube keeps every thumbnail at a fixed https
+// address built from the video id, so build it from the id instead.
+function thumbnailOf(id) {
+  return `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
 }
 
 function normalizePlaylist(data, playlistId, pageNumber) {
@@ -92,7 +87,7 @@ function normalizePlaylist(data, playlistId, pageNumber) {
       title: raw.title,
       uploaderName: raw.author || owner,
       uploaderUrl: raw.authorUrl || ownerUrl,
-      thumbnail: thumbnailOf(raw),
+      thumbnail: thumbnailOf(id),
       duration: raw.lengthSeconds,
       views: raw.viewCount,
       uploadedDate: raw.publishedText

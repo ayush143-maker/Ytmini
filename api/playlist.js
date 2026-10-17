@@ -19,6 +19,69 @@ const CONFIG = Object.freeze({
   maxNameLength: 200
 });
 
+// Piped gets a head start. If it has not answered after `hedgeMs`, Invidious is
+// asked too, and whichever gives a usable playlist first is used. If Piped
+// fails sooner than that, Invidious starts straight away. This keeps the total
+// well under the 10 second limit in vercel.json.
+const TIMING = { hedgeMs: 2500 };
+
+function firstPage(id) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let invidiousStarted = false;
+    let pipedError = null;
+    let invidiousError = null;
+    let timer = null;
+
+    const win = (result) => {
+      if (settled) return;
+
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    const lose = () => {
+      if (settled || !pipedError || !invidiousError) return;
+
+      settled = true;
+      clearTimeout(timer);
+
+      console.error("Playlist providers failed:", {
+        id,
+        piped: pipedError?.details || pipedError?.message || "Piped failed",
+        invidious:
+          invidiousError?.details || invidiousError?.message || "Invidious failed"
+      });
+
+      reject(new Error("All playlist providers failed."));
+    };
+
+    const startInvidious = () => {
+      if (settled || invidiousStarted) return;
+
+      invidiousStarted = true;
+      clearTimeout(timer);
+
+      invidiousPlaylist(id, 1).then(win, (error) => {
+        invidiousError = error || new Error("Invidious failed");
+        lose();
+      });
+    };
+
+    timer = setTimeout(startInvidious, TIMING.hedgeMs);
+
+    piped(`/playlists/${id}`)
+      .then((data) => normalizePipedPlaylist(data, id))
+      .then(win)
+      .catch((error) => {
+        pipedError = error || new Error("Piped failed");
+        startInvidious();
+        lose();
+      });
+  });
+}
+
 function single(value) {
   return typeof value === "string" ? value : "";
 }
@@ -94,32 +157,17 @@ module.exports = async function handler(req, res) {
     // Continuation tokens issued by the Invidious fallback are explicitly
     // namespaced so they can never be mistaken for a Piped opaque token.
     const invidiousPage = page.match(/^iv:([1-9]\d{0,3})$/);
+
     if (invidiousPage) {
       result = await invidiousPlaylist(id, Number(invidiousPage[1]));
+    } else if (page) {
+      // A Piped continuation token only makes sense to Piped.
+      result = normalizePipedPlaylist(
+        await piped(`/nextpage/playlists/${id}?nextpage=${encodeURIComponent(page)}`),
+        id
+      );
     } else {
-      try {
-        const data = await piped(
-          page
-            ? `/nextpage/playlists/${id}?nextpage=${encodeURIComponent(page)}`
-            : `/playlists/${id}`
-        );
-        result = normalizePipedPlaylist(data, id);
-      } catch (pipedError) {
-        // An opaque Piped continuation token is not compatible with Invidious
-        // pagination. Only fall back on the first page; subsequent Invidious
-        // pages use the iv:N token above.
-        if (page) throw pipedError;
-        try {
-          result = await invidiousPlaylist(id, 1);
-        } catch (invidiousError) {
-          console.error("Playlist providers failed:", {
-            id,
-            piped: pipedError?.details || pipedError?.message || "Piped failed",
-            invidious: invidiousError?.details || invidiousError?.message || "Invidious failed"
-          });
-          throw new Error("All playlist providers failed.");
-        }
-      }
+      result = await firstPage(id);
     }
 
     res.setHeader(
@@ -135,3 +183,5 @@ module.exports = async function handler(req, res) {
     });
   }
 };
+
+module.exports.TIMING = TIMING;
