@@ -264,14 +264,12 @@
   function renderActions(video) {
     const ui = UI();
     const box = $("#watch-actions");
-    const followSlot = $("#watch-follow");
 
     if (!box) return;
 
     box.replaceChildren();
-    followSlot?.replaceChildren();
 
-    // Row 1: Like, Save, Playlist, Share, each in its own box.
+    // Row 1: Like, Save, Playlist and Share, together in one box.
     const icons = el("div", "watch-row watch-row--icons");
 
     const like = iconButton("like", "Like");
@@ -339,7 +337,7 @@
     icons.append(like, save, playlist, share);
     box.append(icons);
 
-    // Row 2, under the icons: playlist steps, speed and Autoplay.
+    // Row 2, under the icons: playlist steps, speed, Autoplay and Follow.
     const controls = el("div", "watch-row watch-row--controls");
 
     if (playlistCtx) {
@@ -380,9 +378,6 @@
       controls.append(auto);
     }
 
-    box.append(controls);
-
-    // Follow sits beside the channel name.
     const following = ui.channelState(video) === "follow";
     const follow = ui.makeButton(
       following ? "Following" : "Follow",
@@ -397,8 +392,8 @@
       if (current?.id === video.id) renderActions(video);
     });
 
-    if (followSlot) followSlot.append(follow);
-    else controls.append(follow);
+    controls.append(follow);
+    box.append(controls);
   }
 
   // ---------------------------------------------------------------------------
