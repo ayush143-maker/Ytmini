@@ -1244,8 +1244,8 @@ body.has-now-playing .toast {
 .watch-channel {
   margin-top: 10px;
   color: var(--fog);
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 20px;
+  font-weight: 600;
 }
 
 .watch-actions {
@@ -2209,28 +2209,6 @@ body.has-now-playing .toast {
 
 /* 23. Watch page actions ---------------------------------------------------- */
 
-.watch-byline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 10px;
-}
-
-.watch-byline .watch-channel {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin-top: 0;
-}
-
-.watch-follow {
-  flex: none;
-}
-
-.watch-follow:empty {
-  display: none;
-}
-
 .watch-row {
   display: flex;
   flex-wrap: wrap;
@@ -2238,13 +2216,26 @@ body.has-now-playing .toast {
   gap: 10px;
 }
 
-/* Each icon sits in its own square box. The heart is the largest. */
+/* Like, Save, Playlist and Share share one box. The heart is the largest. */
+.watch-row--icons {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0;
+  width: max-content;
+  max-width: 100%;
+  border: 1px solid var(--steel-hi);
+}
+
 .ay-icon {
-  width: 48px;
+  width: 56px;
   height: 48px;
   min-height: 48px;
   padding: 0;
-  border-color: var(--steel-hi);
+  border: 0;
+}
+
+.ay-icon + .ay-icon {
+  border-left: 1px solid var(--steel);
 }
 
 .ay-icon svg {
@@ -2266,12 +2257,7 @@ body.has-now-playing .toast {
   fill: currentColor;
 }
 
-.ay-icon[aria-pressed="true"] {
-  border-color: var(--paper);
-}
-
-.watch-row--controls .ay-action,
-.watch-follow .ay-action {
+.watch-row--controls .ay-action {
   min-height: 44px;
   border-color: var(--steel-hi);
 }
