@@ -1,71 +1,23 @@
-# ayutube
+# AyuTube
 
-Video discovery for cartoons, mathematics, coding, puzzles and facts.
-A static frontend, Vercel serverless API routes and Supabase for accounts.
-Swiss editorial design: one grotesk (Schibsted Grotesk), a script wordmark
-(Sacramento), square corners only, one pink accent.
-
-## Structure
-
-- `index.html` - page shell (brand, tabs, search, feed, results, watch page)
-- `assets/css/style.css` - the whole design system
-- `assets/icons/` - `logo.svg` (the mark), `favicon.svg`, `favicon.png`
-- `assets/js/api.js` - client for `/api/search` and `/api/streams`
-- `assets/js/player.js` - direct playback with a YouTube embed fallback, watch history
-- `assets/js/categories.js` - categories and suggested searches
-- `assets/js/supabase.js`, `auth.js`, `library.js` - Supabase client, auth, playlists / Watch later / history / channels / notes
-- `assets/js/cards.js` - video card, action menu, skeletons
-- `assets/js/feed.js` - home feed (lead, continue watching, category blocks, endless list)
-- `assets/js/watch.js` - watch page: actions, Up next, autoplay, resume, notes, shared links
-- `assets/js/channel.js` - channel page (Piped channel endpoint, falls back to a search by name)
-- `assets/js/following.js` - latest videos from followed channels and the "New" markers
-- `assets/js/welcome.js`, `onboarding.js` - first-visit screen (create account / sign in / incognito) and the interests picker
-- `assets/js/search-ui.js` - local search suggestions and recent searches
-- `assets/js/library-ui.js`, `account-ui.js` - Library and Account screens
-- `assets/js/app.js` - shell, navigation, search, panes, history/deep links
-- `api/search.js`, `api/streams.js`, `api/feed.js`, `api/channel.js` - serverless routes
-- `api/_piped.js`, `api/_normalize.js` - shared helpers (not routes)
-- `api/config.js` - public Supabase URL and publishable key
-- `supabase/schema.sql`, `supabase/migrations/` - database schema
-
-## Environment variables (Vercel > Project Settings > Environment Variables)
-
-| Name | Required | Value |
-| --- | --- | --- |
-| `SUPABASE_URL` | yes | `https://ydpeuorhetnehpssxhao.supabase.co` |
-| `SUPABASE_PUBLISHABLE_KEY` | yes | the project's publishable key (`sb_publishable_...`) |
-| `PIPED_INSTANCES` | no | comma-separated, verified Piped API base URLs (HTTPS only) |
-
-Never put a secret or `service_role` key in the frontend or in `SUPABASE_PUBLISHABLE_KEY`.
-
-## Deploy
-
-1. Push the folder to a GitHub repository with `index.html` at the root.
-2. Import it in Vercel. Framework preset: Other. No build command, no output directory.
-3. Add the environment variables, then deploy.
-4. Supabase > Authentication > URL Configuration: set the Site URL and Redirect URLs to your Vercel domain.
-5. Check `/api/config`, `/api/search?q=test`, `/api/feed?q=oggy`, then sign up, play a video and open Library.
-
-## Features
-
-- Home feed from the categories a person chose (or the normal five), channel pages, Library > Following with a "New" marker, likes, notes, share at the current time, pause history, exam countdown (the person enters the date).
-- Incognito on the first screen means no account and the normal feed.
-- Signing up sends Supabase's confirmation mail. On Supabase's default email service the sending limit is very small; for real users set up your own SMTP in Supabase > Authentication.
-- Icons in the navigation are from Lucide (ISC licence).
-
-## Notes
-
-- Search, the feed and direct playback depend on third-party Piped instances. When direct playback fails, the YouTube embed is used. If every instance fails, search and the feed show an error; set `PIPED_INSTANCES` to instances you have verified.
-- The YouTube embed keeps its own controls, branding and quality menu. The embed must stay at least 200 x 200 px and nothing may cover it, so there is no floating mini-player; leaving the watch page pauses the video and shows a "Paused" strip.
-- Shared links look like `/?v=VIDEO_ID` (optionally `&t=SECONDS`).
+A LibreTube-style YouTube client for Android: no ads, no accounts, no server. Your history,
+playlists and follows stay on your phone. Free software under the GNU GPL v3.
 
 ## Android app (Capacitor)
 
-The same static frontend is wrapped as an Android app with [Capacitor](https://capacitorjs.com).
-The web deployment on Vercel is unchanged; the app only adds `assets/js/native.js`,
-which sends relative `/api/*` calls to `https://ayutube.vercel.app` when running inside the app.
+AyuTube is an Android app built with [Capacitor](https://capacitorjs.com). Like LibreTube it has
+**no server and no accounts**:
 
-Requirements: Node 22, Android Studio (JDK 17+).
+- **Data on the device.** Search, channels, playlists and streams come from
+  [NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor) running inside the app
+  (`AyuExtractorPlugin`). Nothing goes through a backend.
+- **Your library stays on your phone.** History, playlists, likes, follows and notes are stored in
+  the app (`assets/js/library.js`). Export or import a JSON backup from the Account tab.
+- **Native player.** Playback uses AndroidX Media3 / ExoPlayer (`AyuPlayerPlugin`) behind the web
+  UI, with LibreTube-style controls: double-tap to seek, swipe for brightness and volume,
+  long-press for 2x speed, quality / speed / audio / aspect menu and fullscreen.
+
+Requirements: Node 22, Android Studio (JDK 21).
 
 ```bash
 npm install
@@ -73,10 +25,15 @@ npm run cap:sync     # copies index.html + assets/ into www/ and syncs android/
 npm run cap:open     # opens the project in Android Studio, then Run
 ```
 
+GitHub Actions (`.github/workflows/android-apk.yml`) builds a debug APK on every push to this
+branch; download it from the run's artifacts.
+
 - App id: `com.ayutube.app` (`capacitor.config.json`)
 - Launcher icon and splash are generated from `resources/` (`npm run cap:assets`).
   Regenerate the source PNGs with `python3 scripts/make_icons.py` (needs Pillow).
 - `www/` is a build output and is git-ignored.
+- YouTube changes often. If playback or search breaks, bump `NewPipeExtractor` in
+  `android/app/build.gradle` and rebuild.
 
 ## License
 
