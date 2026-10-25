@@ -130,6 +130,7 @@
       channel,
       thumbnail,
       thumbnailUrl: thumbnail,
+      avatar: secureUrl(item.uploaderAvatar),
       duration: wholeNumber(item.duration, { min: 1, max: LIMITS.maxDurationSeconds }) ?? 0,
       views: wholeNumber(item.views),
       uploaded: text(item.uploadedDate, LIMITS.maxAgeTextLength),

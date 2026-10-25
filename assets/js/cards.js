@@ -167,30 +167,72 @@
     const body = el("div", "vcard-body");
     const heading = el("h3", "vcard-title");
     const titleButton = el("button", "vcard-titlebtn", video.title);
-
     titleButton.type = "button";
     titleButton.addEventListener("click", play);
     heading.append(titleButton);
-
     body.append(heading);
 
-    if (video.uploaderName) {
-      const channel = el("button", "vcard-channel", video.uploaderName);
+    const openOwner = () =>
+      handlers.openChannel?.({ id: video.channelId, name: video.uploaderName });
+    const stats = [formatViews(video.views), video.uploaded].filter(Boolean);
+    const inline = variant !== "compact";
 
-      channel.type = "button";
-      channel.addEventListener("click", () =>
-        handlers.openChannel?.({ id: video.channelId, name: video.uploaderName })
-      );
-      body.append(channel);
+    if (inline) {
+      // YouTube style: "Channel \u00B7 1.2M views \u00B7 3 days ago" on one line.
+      const sub = el("p", "vcard-sub");
+
+      if (video.uploaderName) {
+        const channel = el("button", "vcard-channel", video.uploaderName);
+        channel.type = "button";
+        channel.addEventListener("click", openOwner);
+        sub.append(channel);
+      }
+
+      stats.forEach((stat, index) => {
+        const part = el("span", "vcard-stat", stat);
+        part.dataset.dot = index > 0 || video.uploaderName ? "1" : "";
+        sub.append(part);
+      });
+
+      if (sub.childNodes.length) body.append(sub);
+    } else {
+      if (video.uploaderName) {
+        const channel = el("button", "vcard-channel", video.uploaderName);
+        channel.type = "button";
+        channel.addEventListener("click", openOwner);
+        body.append(channel);
+      }
+
+      if (stats.length) {
+        const meta = el("p", "vcard-meta");
+        for (const stat of stats) meta.append(el("span", "", stat));
+        body.append(meta);
+      }
     }
 
-    const stats = [formatViews(video.views), video.uploaded].filter(Boolean);
+    let avatar = null;
 
-    if (stats.length) {
-      const meta = el("p", "vcard-meta");
+    if (inline) {
+      // Round channel picture; falls back to the channel's first letter.
+      avatar = el("button", "vcard-avatar");
+      avatar.type = "button";
+      avatar.tabIndex = -1;
+      avatar.setAttribute("aria-hidden", "true");
+      avatar.textContent = (video.uploaderName || "?").trim().charAt(0).toUpperCase();
+      avatar.addEventListener("click", openOwner);
 
-      for (const stat of stats) meta.append(el("span", "", stat));
-      body.append(meta);
+      if (video.avatar) {
+        const picture = el("img");
+        picture.alt = "";
+        picture.decoding = "async";
+        picture.addEventListener("load", () => {
+          avatar.textContent = "";
+          avatar.append(picture);
+        });
+        picture.src = video.avatar;
+      }
+
+      card.classList.add("has-avatar");
     }
 
     const more = el("button", "vcard-more");
@@ -203,9 +245,7 @@
       event.stopPropagation();
       openMenu(more, video);
     });
-
-    card.append(media, body, more);
-
+    card.append(...[media, avatar, body, more].filter(Boolean));
     return card;
   }
 

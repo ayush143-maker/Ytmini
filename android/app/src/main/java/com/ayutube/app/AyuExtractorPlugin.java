@@ -135,6 +135,7 @@ public class AyuExtractorPlugin extends Plugin {
         out.put("thumbnail", bestImage(item.getThumbnails()));
         out.put("uploaderName", item.getUploaderName());
         out.put("uploaderUrl", path(item.getUploaderUrl()));
+        out.put("uploaderAvatar", bestImage(item.getUploaderAvatars()));
         out.put("uploadedDate", item.getTextualUploadDate());
         out.put("duration", item.getDuration());
         out.put("views", item.getViewCount());
