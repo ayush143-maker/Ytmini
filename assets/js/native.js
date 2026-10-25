@@ -16,9 +16,20 @@
     return;
   }
 
-  const extractor = cap.registerPlugin("AyuExtractor");
-  const player = cap.registerPlugin("AyuPlayer");
-  const share = cap.registerPlugin("AyuNative");
+  // A plain-JS Capacitor app only gets the native bridge (cap.Plugins);
+  // registerPlugin exists only when @capacitor/core is bundled.
+  const plugin = (name) =>
+    (cap.Plugins && cap.Plugins[name]) ||
+    (typeof cap.registerPlugin === "function" ? cap.registerPlugin(name) : null);
+
+  const extractor = plugin("AyuExtractor");
+  const player = plugin("AyuPlayer");
+  const share = plugin("AyuNative");
+
+  if (!extractor || !player) {
+    console.error("AyuTube native plugins are missing from this build.");
+    return;
+  }
 
   window.AyuNativeBridge = Object.freeze({ extractor, player, share });
   document.documentElement.classList.add("is-native");
