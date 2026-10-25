@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="271 337 708 563" role="img" aria-label="AyuTube mark">
-  <polygon points="627,337 722,487 555,738 271,900" fill="#FF0D50"/>
-  <polygon points="271,900 555,738 449,900" fill="#DC0046"/>
-  <polygon points="722,487 625,635 687,722" fill="#99002F"/>
-  <polygon points="722,487 979,900 799,900 687,722" fill="#E8004E"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="344 264 563 708" role="img" aria-label="AyuTube mark">
+  <polygon points="906,620 756,716 506,548 344,264" fill="#FF0D50"/>
+  <polygon points="344,264 506,548 344,442" fill="#DC0046"/>
+  <polygon points="756,716 608,618 522,680" fill="#99002F"/>
+  <polygon points="756,716 344,972 344,792 522,680" fill="#E8004E"/>
 </svg>
