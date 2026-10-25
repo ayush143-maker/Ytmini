@@ -1,27 +1,40 @@
-
+/*
+ * AyuTube - video player.
+ *
+ * Playback runs in a native ExoPlayer (Media3) behind the transparent
+ * WebView; this file draws the controls and gestures on top, modelled on
+ * LibreTube's player (double-tap to seek, swipe for brightness and volume,
+ * long-press for 2x speed, quality / speed / audio / aspect menu, fullscreen).
+ *
+ * Licensed under the GNU General Public License v3.0 (see LICENSE).
+ */
 (() => {
   "use strict";
 
   const CONFIG = Object.freeze({
-    streamTimeoutMs: 5000,
-    moduleTimeoutMs: 15000,
     historyIntervalMs: 15000,
     historyMinimumProgressDelta: 8,
-    youtubeReadyTimeoutMs: 10000,
-    streamLoadTimeoutMs: 10000,
-    playStartTimeoutMs: 4000,
-    barPollMs: 250,
+    startTimeoutMs: 25000,
+    controlsHideMs: 3200,
+    skipSeconds: 10,
+    doubleTapMs: 280,
+    longPressMs: 450,
+    boostRate: 2,
+    syncMs: 150,
     validIdPattern: /^[A-Za-z0-9_-]{6,20}$/
   });
 
-  const MODULE_PATHS = Object.freeze({
-    supabase: "/assets/js/supabase.js",
-    auth: "/assets/js/auth.js",
-    library: "/assets/js/library.js"
-  });
+  const RATES = Object.freeze([0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]);
+  const QUALITY_KEY = "ayutube.quality";
+  const RESIZE_KEY = "ayutube.resize";
+  const RESIZE_MODES = Object.freeze([
+    { id: "fit", label: "Fit" },
+    { id: "fill", label: "Stretch" },
+    { id: "zoom", label: "Zoom" }
+  ]);
 
   const dom = {
-    video: document.getElementById("video-player"),
+    frame: document.querySelector("#player-panel .video-frame"),
     message: document.getElementById("player-message"),
     title: document.getElementById("player-title"),
     channel: document.getElementById("player-channel"),
@@ -30,15 +43,13 @@
     closeButton: document.getElementById("close-player")
   };
 
-  const scriptPromises = new Map();
+  if (!Object.values(dom).every(Boolean)) {
+    console.error("AyuTube player could not initialize: required HTML elements are missing.");
+    return;
+  }
 
   // Tiny event emitter so the page can react to playback without polling.
-  const listeners = {
-    play: new Set(),
-    close: new Set(),
-    ended: new Set(),
-    state: new Set()
-  };
+  const listeners = { play: new Set(), close: new Set(), ended: new Set(), state: new Set() };
 
   function emit(name, payload) {
     for (const handler of listeners[name] || []) {
@@ -52,80 +63,138 @@
 
   function on(name, handler) {
     listeners[name]?.add(handler);
-
     return () => listeners[name]?.delete(handler);
   }
 
-  let activeStart = 0;
-  let activeRate = 1;
+  const bridge = () => window.AyuNativeBridge || null;
+  const root = document.documentElement;
+
+  const storage = {
+    get(key, fallback) {
+      try {
+        const value = localStorage.getItem(key);
+        return value === null ? fallback : value;
+      } catch {
+        return fallback;
+      }
+    },
+    set(key, value) {
+      try {
+        localStorage.setItem(key, String(value));
+      } catch {
+        // Preferences are optional.
+      }
+    }
+  };
 
   let activeItem = null;
   let activeToken = 0;
-  let activeMode = "idle";
-  let youtubePlayer = null;
-  let youtubeApiPromise = null;
-  let youtubeProgressTimer = null;
+  let activeStart = 0;
+  let activeRate = 1;
+  let activeMode = "idle"; // idle | loading | native
+  let info = null;
+  let choice = { qualities: [], muxed: null };
+  let selectedQuality = null;
+  let selectedAudio = null;
+  let triedMuxed = false;
+  let lastState = {};
+  let resizeMode = RESIZE_MODES.some((m) => m.id === storage.get(RESIZE_KEY, "fit"))
+    ? storage.get(RESIZE_KEY, "fit")
+    : "fit";
+  let fullscreen = false;
+  let wired = false;
 
-  let historyAuthStatus = "unknown";
   let lastHistoryQueuedAt = 0;
   let lastQueuedProgress = -1;
   let historyWritePromise = null;
   let pendingHistory = null;
 
-  const hasRequiredElements = Boolean(
-    dom.video &&
-    dom.message &&
-    dom.title &&
-    dom.channel &&
-    dom.watchLink &&
-    dom.panel &&
-    dom.closeButton
-  );
+  const isCurrent = (token) => token === activeToken && Boolean(activeItem);
 
-  if (!hasRequiredElements) {
-    console.error(
-      "AyuTube player could not initialize: required HTML elements are missing."
-    );
-    return;
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+
+    return node;
   }
 
-  // ---------------------------------------------------------------------------
-  // General helpers
-  // ---------------------------------------------------------------------------
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
-  function getIframe() {
-    let iframe = document.getElementById("youtube-player");
+  function formatClock(value) {
+    const total = Math.max(0, Math.floor(Number(value) || 0));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = String(total % 60).padStart(2, "0");
 
-    if (iframe) return iframe;
+    return hours
+      ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}`
+      : `${minutes}:${seconds}`;
+  }
 
-    const frame = dom.video.parentElement;
+  function getVideoId(item) {
+    if (!item || typeof item !== "object") return "";
 
-    if (!frame) {
-      throw new Error("The video player container is missing.");
+    const directId = String(item.id || item.videoId || "").trim();
+
+    if (CONFIG.validIdPattern.test(directId)) return directId;
+
+    const url = typeof item.url === "string" ? item.url : "";
+
+    try {
+      const parsed = new URL(url);
+
+      if (parsed.hostname === "youtu.be" || parsed.hostname.endsWith(".youtu.be")) {
+        const id = parsed.pathname.split("/").filter(Boolean)[0] || "";
+        return CONFIG.validIdPattern.test(id) ? id : "";
+      }
+
+      if (parsed.hostname === "youtube.com" || parsed.hostname.endsWith(".youtube.com")) {
+        const id =
+          parsed.searchParams.get("v") ||
+          parsed.pathname.match(/\/(?:embed|shorts)\/([^/]+)/)?.[1] ||
+          "";
+        return CONFIG.validIdPattern.test(id) ? id : "";
+      }
+    } catch {
+      return "";
     }
 
-    iframe = document.createElement("iframe");
-    iframe.id = "youtube-player";
-    iframe.title = "YouTube video player";
-    iframe.hidden = true;
-    iframe.allowFullscreen = true;
-    iframe.referrerPolicy = "strict-origin-when-cross-origin";
-    iframe.allow =
-      "autoplay; encrypted-media; picture-in-picture; fullscreen";
-
-    frame.append(iframe);
-
-    return iframe;
+    return "";
   }
 
+  function normalizeItem(item) {
+    const id = getVideoId(item);
+
+    if (!id) throw new Error("This video has an invalid ID.");
+
+    const title =
+      typeof item.title === "string" && item.title.trim()
+        ? item.title.trim().slice(0, 500)
+        : "Untitled video";
+    const channel = item.uploaderName || item.channelTitle || item.channel || "";
+    const thumbnail = item.thumbnail || item.thumbnailUrl || "";
+
+    return {
+      id,
+      title,
+      uploaderName: typeof channel === "string" ? channel.slice(0, 300) : "",
+      thumbnail: typeof thumbnail === "string" ? thumbnail.slice(0, 2000) : ""
+    };
+  }
+
+  const youtubeWatchUrl = (id) => `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
+
   // ---------------------------------------------------------------------------
-  // Loading: a thin pink line moves forward while the video loads. Playback
-  // starts underneath it as soon as the player is ready, and the line is
-  // removed the moment the player reports that the video is playing, so
-  // the player's own paused screen never flashes in between.
+  // Loading line and messages (shown over the video area)
   // ---------------------------------------------------------------------------
 
-  let gate = null; // { token, finishing }
+  let gate = null;
   let lineFrame = 0;
   let startTimer = 0;
 
@@ -137,32 +206,18 @@
     lineFrame = 0;
   }
 
-  function buildLine() {
-    const track = document.createElement("div");
-    track.className = "load-line";
-
-    const fill = document.createElement("i");
-    track.append(fill);
-
-    const label = document.createElement("span");
-    label.className = "sr-only";
-    label.textContent = "Loading video";
-    track.append(label);
-
-    return { track, fill };
-  }
-
   function showLoading(token) {
-    // Keep the line running if this play request is already showing it.
     if (gate && gate.token === token && !dom.message.hidden) return;
 
     stopLine();
     clearTimeout(startTimer);
-
     gate = { token, finishing: false };
 
-    const { track, fill } = buildLine();
+    const track = el("div", "load-line");
+    const fill = el("i");
+    const label = el("span", "sr-only", "Loading video");
 
+    track.append(fill, label);
     dom.message.className = "player-message is-loading";
     dom.message.replaceChildren(track);
     dom.message.hidden = false;
@@ -173,12 +228,9 @@
       return;
     }
 
-    // Quick at first, then slower, never quite reaching the end by itself.
     const started = performance.now();
-
     const tick = (now) => {
       const progress = 0.92 * (1 - Math.exp(-(now - started) / 1800));
-
       fill.style.transform = `scaleX(${progress.toFixed(4)})`;
       lineFrame = requestAnimationFrame(tick);
     };
@@ -186,10 +238,15 @@
     lineFrame = requestAnimationFrame(tick);
   }
 
-  /**
-   * The video is playing (or cannot be waited for any longer): run the line
-   * to the end and remove it.
-   */
+  function hideMessage() {
+    gate = null;
+    stopLine();
+    clearTimeout(startTimer);
+    dom.message.className = "player-message";
+    dom.message.hidden = true;
+    dom.message.replaceChildren();
+  }
+
   function finishLoading() {
     if (!gate || gate.finishing) return;
 
@@ -207,709 +264,732 @@
 
     fill.style.transition = "transform 120ms linear";
     fill.style.transform = "scaleX(1)";
-
     setTimeout(() => {
       if (gate === current) hideMessage();
     }, 130);
   }
 
-  /**
-   * Safety net: if playback does not begin (autoplay blocked, slow network),
-   * remove the line so the player's own play button is reachable.
-   */
-  function armStartFallback(token) {
-    clearTimeout(startTimer);
-
-    startTimer = setTimeout(() => {
-      if (isCurrent(token)) finishLoading();
-    }, CONFIG.playStartTimeoutMs);
-  }
-
-  function showMessage(text, isError = false) {
+  function showError(text, detail) {
     gate = null;
     stopLine();
     clearTimeout(startTimer);
 
+    const box = el("div", "player-error");
+
+    box.append(el("p", "player-error-text", text));
+
+    if (detail) box.append(el("p", "player-error-detail", String(detail).slice(0, 160)));
+
+    const actions = el("div", "player-error-actions");
+    const retry = el("button", "ay-action ay-action-primary", "Retry");
+
+    retry.type = "button";
+    retry.addEventListener("click", () => {
+      if (!activeItem) return;
+      play(activeItem, { start: Math.floor((lastState.positionMs || 0) / 1000) || activeStart });
+    });
+    actions.append(retry);
+    box.append(actions);
+
     dom.message.className = "player-message";
-    dom.message.replaceChildren();
-    dom.message.textContent = text;
+    dom.message.replaceChildren(box);
     dom.message.hidden = false;
-    dom.message.setAttribute(
-      "role",
-      isError ? "alert" : "status"
-    );
-  }
-
-  function hideMessage() {
-    gate = null;
-    stopLine();
-    clearTimeout(startTimer);
-
-    dom.message.className = "player-message";
-    dom.message.hidden = true;
-    dom.message.replaceChildren();
-  }
-
-  function getVideoId(item) {
-    if (!item || typeof item !== "object") return "";
-
-    const directId = String(item.id || item.videoId || "").trim();
-
-    if (CONFIG.validIdPattern.test(directId)) {
-      return directId;
-    }
-
-    const url = typeof item.url === "string" ? item.url : "";
-
-    try {
-      const parsed = new URL(url);
-
-      if (
-        parsed.hostname === "youtu.be" ||
-        parsed.hostname.endsWith(".youtu.be")
-      ) {
-        const id = parsed.pathname.split("/").filter(Boolean)[0] || "";
-
-        return CONFIG.validIdPattern.test(id) ? id : "";
-      }
-
-      if (
-        parsed.hostname === "youtube.com" ||
-        parsed.hostname.endsWith(".youtube.com")
-      ) {
-        const id =
-          parsed.searchParams.get("v") ||
-          parsed.pathname.match(/\/(?:embed|shorts)\/([^/]+)/)?.[1] ||
-          "";
-
-        return CONFIG.validIdPattern.test(id) ? id : "";
-      }
-    } catch {
-      return "";
-    }
-
-    return "";
-  }
-
-  function normalizeItem(item) {
-    const id = getVideoId(item);
-
-    if (!id) {
-      throw new Error("This video has an invalid ID.");
-    }
-
-    const title =
-      typeof item.title === "string" && item.title.trim()
-        ? item.title.trim().slice(0, 500)
-        : "Untitled video";
-
-    const channel =
-      item.uploaderName ||
-      item.channelTitle ||
-      item.channel ||
-      "";
-
-    const thumbnail = item.thumbnail || item.thumbnailUrl || "";
-
-    return {
-      id,
-      title,
-      uploaderName:
-        typeof channel === "string" ? channel.slice(0, 300) : "",
-      thumbnail:
-        typeof thumbnail === "string" ? thumbnail.slice(0, 2000) : ""
-    };
-  }
-
-  function youtubeWatchUrl(id) {
-    return `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
-  }
-
-  function youtubeEmbedUrl(id, start = 0, autoplay = true, clean = false) {
-    const url = new URL(
-      `https://www.youtube.com/embed/${encodeURIComponent(id)}`
-    );
-
-    if (autoplay) url.searchParams.set("autoplay", "1");
-    url.searchParams.set("playsinline", "1");
-    url.searchParams.set("rel", "0");
-    url.searchParams.set("enablejsapi", "1");
-
-    if (clean) {
-      // Our own bar replaces YouTube's: no control bar, no keyboard
-      // shortcuts, no YouTube fullscreen button, no annotations.
-      url.searchParams.set("controls", "0");
-      url.searchParams.set("disablekb", "1");
-      url.searchParams.set("fs", "0");
-      url.searchParams.set("iv_load_policy", "3");
-    }
-
-    if (start > 0) {
-      url.searchParams.set("start", String(Math.floor(start)));
-    }
-
-    if (location.protocol === "https:" || location.protocol === "http:") {
-      url.searchParams.set("origin", location.origin);
-    }
-
-    return url.href;
-  }
-
-  function isCurrent(token) {
-    return token === activeToken && Boolean(activeItem);
-  }
-
-  function clearYoutubeProgressTimer() {
-    if (youtubeProgressTimer !== null) {
-      clearInterval(youtubeProgressTimer);
-      youtubeProgressTimer = null;
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Media cleanup
-  // ---------------------------------------------------------------------------
-
-  function destroyYoutubePlayer() {
-    clearYoutubeProgressTimer();
-
-    if (youtubePlayer) {
-      try {
-        youtubePlayer.destroy();
-      } catch (error) {
-        console.debug("YouTube player cleanup:", error);
-      }
-
-      youtubePlayer = null;
-    }
-
-    // The IFrame API can replace its target element.
-    // Recreate a missing iframe so the next video can still play.
-    try {
-      const iframe = getIframe();
-      iframe.removeAttribute("src");
-      iframe.hidden = true;
-    } catch (error) {
-      console.error("Unable to reset YouTube iframe:", error);
-    }
-  }
-
-  function resetMedia() {
-    try {
-      dom.video.pause();
-    } catch {
-      // The media element may not have started yet.
-    }
-
-    dom.video.onerror = null;
-    dom.video.onplaying = null;
-    dom.video.onpause = null;
-    dom.video.onended = null;
-    dom.video.ontimeupdate = null;
-
-    dom.video.removeAttribute("src");
-    dom.video.load();
-    dom.video.hidden = true;
-
-    destroyYoutubePlayer();
-
-    hideBar();
-    hideMessage();
-    dom.watchLink.hidden = true;
-  }
-
-  function showWatchLink() {
-    dom.watchLink.href = youtubeWatchUrl(activeItem.id);
-    dom.watchLink.target = "_blank";
-    dom.watchLink.rel = "noopener noreferrer";
-    dom.watchLink.textContent = "Watch on YouTube ↗";
+    dom.message.setAttribute("role", "alert");
+    dom.watchLink.href = youtubeWatchUrl(activeItem?.id || "");
     dom.watchLink.hidden = false;
   }
 
   // ---------------------------------------------------------------------------
-  // Clean controls: our own play / seek / mute / fullscreen bar, placed under
-  // the video (never over it). OFF by default (YouTube's own controls); the
-  // Account tab can switch it on. Applies to the next video.
+  // Controls (drawn over the transparent video area)
   // ---------------------------------------------------------------------------
-
-  const CLEAN_KEY = "ayutube.clean";
-
-  function cleanControlsOn() {
-    try {
-      return JSON.parse(localStorage.getItem(CLEAN_KEY)) === true;
-    } catch {
-      return false;
-    }
-  }
 
   const SVG_NS = "http://www.w3.org/2000/svg";
 
-  // [path, "fill" | "stroke"]
   const ICONS = Object.freeze({
-    play: [["M7 4.5v15l12-7.5z", "fill"]],
-    pause: [["M6 4.5h4.5v15H6zM13.5 4.5H18v15h-4.5z", "fill"]],
-    volume: [
-      ["M3 9v6h4l5 4V5L7 9z", "fill"],
-      ["M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13", "stroke"]
-    ],
-    muted: [
-      ["M3 9v6h4l5 4V5L7 9z", "fill"],
-      ["M16 9.5l5 5M21 9.5l-5 5", "stroke"]
-    ],
-    expand: [["M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5", "stroke"]],
-    shrink: [["M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5", "stroke"]]
+    play: "M8 5v14l11-7z",
+    pause: "M6 19h4V5H6v14zm8-14v14h4V5h-4z",
+    replay:
+      "M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z",
+    forward:
+      "M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z",
+    settings:
+      "M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.5.5 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.5.5 0 0 0-.59.22L2.74 8.87a.5.5 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.5.5 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.49-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.5.5 0 0 0-.12-.61l-2.01-1.58zM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z",
+    fullscreen: "M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z",
+    fullscreenExit: "M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z",
+    arrowLeft: "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
+    check: "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
+    chevron: "M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z",
+    chevronBack: "M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z",
+    volume:
+      "M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02z",
+    brightness:
+      "M20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12 20 8.69zM12 18a6 6 0 1 1 0-12 6 6 0 0 1 0 12z",
+    speed:
+      "M13 2.05v3.03c3.39.49 6 3.39 6 6.92 0 .9-.18 1.75-.48 2.54l2.6 1.53c.56-1.24.88-2.62.88-4.07 0-5.18-3.95-9.45-9-9.95zM12 19c-3.87 0-7-3.13-7-7 0-3.53 2.61-6.43 6-6.92V2.05c-5.06.5-9 4.76-9 9.95 0 5.52 4.47 10 9.99 10 3.31 0 6.24-1.61 8.06-4.09l-2.6-1.53A6.95 6.95 0 0 1 12 19z"
   });
 
-  const bar = {
-    root: null,
-    play: null,
-    mute: null,
-    full: null,
-    range: null,
-    now: null,
-    total: null,
-    timer: 0,
-    dragging: false
-  };
-
-  function iconSvg(name) {
+  function icon(name, extra) {
     const svg = document.createElementNS(SVG_NS, "svg");
 
     svg.setAttribute("viewBox", "0 0 24 24");
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("focusable", "false");
 
-    for (const [d, kind] of ICONS[name]) {
-      const path = document.createElementNS(SVG_NS, "path");
+    const path = document.createElementNS(SVG_NS, "path");
 
-      path.setAttribute("d", d);
+    path.setAttribute("d", ICONS[name]);
+    path.setAttribute("fill", "currentColor");
+    svg.append(path);
 
-      if (kind === "fill") {
-        path.setAttribute("fill", "currentColor");
-      } else {
-        path.setAttribute("fill", "none");
-        path.setAttribute("stroke", "currentColor");
-        path.setAttribute("stroke-width", "2");
-      }
+    if (extra) {
+      const label = document.createElementNS(SVG_NS, "text");
 
-      svg.append(path);
+      label.setAttribute("x", "12");
+      label.setAttribute("y", "15.6");
+      label.setAttribute("font-size", "6.5");
+      label.setAttribute("font-weight", "700");
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("fill", "currentColor");
+      label.textContent = extra;
+      svg.append(label);
     }
 
     return svg;
   }
 
-  function setBarIcon(button, name, label) {
-    if (button.dataset.icon !== name) {
-      button.dataset.icon = name;
-      button.replaceChildren(iconSvg(name));
-    }
+  function button(className, name, label, extra) {
+    const node = el("button", `pl-btn ${className}`);
 
-    button.setAttribute("aria-label", label);
+    node.type = "button";
+    node.setAttribute("aria-label", label);
+    node.append(icon(name, extra));
+
+    return node;
   }
 
-  function formatClock(value) {
-    const total = Math.max(0, Math.floor(Number(value) || 0));
-    const h = Math.floor(total / 3600);
-    const m = Math.floor((total % 3600) / 60);
-    const sec = String(total % 60).padStart(2, "0");
-
-    return h > 0
-      ? `${h}:${String(m).padStart(2, "0")}:${sec}`
-      : `${m}:${sec}`;
+  function setIcon(node, name, label) {
+    node.replaceChildren(icon(name));
+    node.setAttribute("aria-label", label);
   }
 
-  /** Current state of whichever engine is active, or null. */
-  function mediaState() {
-    try {
-      if (activeMode === "direct") {
-        const duration = Number(dom.video.duration);
+  let ui = null;
+  let hideTimer = 0;
+  let dragging = false;
 
-        return {
-          playing: !dom.video.paused && !dom.video.ended,
-          time: Number(dom.video.currentTime) || 0,
-          duration: Number.isFinite(duration) ? duration : 0,
-          muted: Boolean(dom.video.muted)
-        };
-      }
+  function ensureUi() {
+    if (ui) return ui;
 
-      if (activeMode === "youtube" && youtubePlayer?.getPlayerState) {
-        const states = window.YT?.PlayerState;
-        const state = youtubePlayer.getPlayerState();
+    const rootNode = el("div", "pl-ui is-active");
+    const surface = el("div", "pl-surface");
 
-        return {
-          playing:
-            Boolean(states) &&
-            (state === states.PLAYING || state === states.BUFFERING),
-          time: Number(youtubePlayer.getCurrentTime()) || 0,
-          duration: Number(youtubePlayer.getDuration()) || 0,
-          muted: Boolean(youtubePlayer.isMuted?.())
-        };
-      }
-    } catch {
-      // The engine is not ready yet.
-    }
+    const top = el("div", "pl-top");
+    const exit = button("pl-exit", "arrowLeft", "Exit fullscreen");
+    const title = el("div", "pl-title");
+    const gear = button("pl-gear", "settings", "Playback settings");
 
-    return null;
-  }
+    top.append(exit, title, gear);
 
-  function toggleMute() {
-    const state = mediaState();
+    const mid = el("div", "pl-mid");
+    const back = button("pl-skip", "replay", `Back ${CONFIG.skipSeconds} seconds`, String(CONFIG.skipSeconds));
+    const play = button("pl-play", "play", "Play");
+    const forward = button("pl-skip pl-skip-fwd", "forward", `Forward ${CONFIG.skipSeconds} seconds`, String(CONFIG.skipSeconds));
 
-    if (!state) return;
+    mid.append(back, play, forward);
 
-    try {
-      if (activeMode === "direct") {
-        dom.video.muted = !state.muted;
-      } else if (state.muted) {
-        youtubePlayer.unMute();
-      } else {
-        youtubePlayer.mute();
-      }
-    } catch (error) {
-      console.debug("AyuTube could not change volume:", error);
-    }
+    const bottom = el("div", "pl-bottom");
+    const current = el("span", "pl-time", "0:00");
+    const seek = el("div", "pl-seek");
+    const buffered = el("div", "pl-buf");
+    const fill = el("div", "pl-fill");
+    const thumb = el("div", "pl-thumb");
+    const duration = el("span", "pl-time", "0:00");
+    const fs = button("pl-fs", "fullscreen", "Fullscreen");
 
-    syncBar();
-  }
+    seek.setAttribute("role", "slider");
+    seek.setAttribute("aria-label", "Seek");
+    seek.append(buffered, fill, thumb);
+    bottom.append(current, seek, duration, fs);
 
-  function toggleFullscreen() {
-    const target = dom.panel.querySelector(".watch-player");
-    const active = document.fullscreenElement || document.webkitFullscreenElement;
+    const hint = el("div", "pl-hint");
+    const hintIcon = el("span", "pl-hint-icon");
+    const hintText = el("span", "pl-hint-text");
+    const hintBar = el("div", "pl-hint-bar");
+    const hintFill = el("i");
 
-    try {
-      if (active) {
-        (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-      } else if (target) {
-        (target.requestFullscreen || target.webkitRequestFullscreen).call(target);
-      }
-    } catch (error) {
-      console.debug("AyuTube could not change fullscreen:", error);
-    }
-  }
+    hintBar.append(hintFill);
+    hint.append(hintIcon, hintText, hintBar);
+    hint.hidden = true;
 
-  function paintRange() {
-    bar.range.style.setProperty("--p", `${Number(bar.range.value) / 10}%`);
-  }
+    const ripple = el("div", "pl-ripple");
 
-  function ensureBar() {
-    if (bar.root) return bar.root;
+    ripple.hidden = true;
 
-    // Structure: .watch-player > (.video-frame > video), then this bar.
-    const host = dom.video.parentElement?.parentElement;
+    const spinner = el("div", "pl-spinner");
 
-    if (!host) return null;
+    spinner.setAttribute("aria-hidden", "true");
 
-    const root = document.createElement("div");
-    root.className = "clean-bar";
-    root.hidden = true;
-    root.setAttribute("role", "group");
-    root.setAttribute("aria-label", "Video controls");
+    rootNode.append(surface, spinner, top, mid, bottom, hint, ripple);
+    dom.frame.append(rootNode);
 
-    const makeButton = () => {
-      const button = document.createElement("button");
-
-      button.type = "button";
-      button.className = "clean-btn";
-
-      return button;
+    ui = {
+      root: rootNode, surface, title, exit, gear, back, play, forward,
+      current, duration, seek, buffered, fill, thumb, fs,
+      hint, hintIcon, hintText, hintBar, hintFill, ripple
     };
 
-    bar.play = makeButton();
-    bar.play.addEventListener("click", () => {
-      if (mediaState()?.playing) pause();
-      else resume();
-
-      setTimeout(syncBar, 120);
+    exit.addEventListener("click", () => setFullscreen(false));
+    gear.addEventListener("click", () => openSheet("main"));
+    fs.addEventListener("click", () => setFullscreen(!fullscreen));
+    play.addEventListener("click", () => {
+      togglePlay();
+      showControls();
+    });
+    back.addEventListener("click", () => {
+      skip(-CONFIG.skipSeconds);
+      showControls();
+    });
+    forward.addEventListener("click", () => {
+      skip(CONFIG.skipSeconds);
+      showControls();
     });
 
-    bar.now = document.createElement("span");
-    bar.now.className = "clean-time";
-    bar.now.textContent = "0:00";
+    bindSeek(seek);
+    bindGestures(surface);
 
-    bar.range = document.createElement("input");
-    bar.range.type = "range";
-    bar.range.className = "clean-range";
-    bar.range.min = "0";
-    bar.range.max = "1000";
-    bar.range.step = "1";
-    bar.range.value = "0";
-    bar.range.disabled = true;
-    bar.range.setAttribute("aria-label", "Seek");
+    return ui;
+  }
 
-    bar.range.addEventListener("input", () => {
-      bar.dragging = true;
+  function isPlayingNow() {
+    return Boolean(lastState.playing || (lastState.playWhenReady && lastState.state === "buffering"));
+  }
 
-      const duration = mediaState()?.duration || 0;
+  function showControls() {
+    if (!ui) return;
 
-      bar.now.textContent = formatClock((duration * bar.range.value) / 1000);
-      paintRange();
+    ui.root.classList.add("is-active");
+    clearTimeout(hideTimer);
+
+    if (isPlayingNow() && !dragging && !sheet) {
+      hideTimer = setTimeout(() => ui?.root.classList.remove("is-active"), CONFIG.controlsHideMs);
+    }
+  }
+
+  function toggleControls() {
+    if (!ui) return;
+
+    if (ui.root.classList.contains("is-active") && isPlayingNow()) {
+      clearTimeout(hideTimer);
+      ui.root.classList.remove("is-active");
+    } else {
+      showControls();
+    }
+  }
+
+  function paintControls() {
+    if (!ui) return;
+
+    const position = Number(lastState.positionMs) || 0;
+    const length = Number(lastState.durationMs) || 0;
+    const ended = lastState.state === "ended";
+
+    if (ended) {
+      setIcon(ui.play, "replay", "Replay");
+    } else if (isPlayingNow()) {
+      setIcon(ui.play, "pause", "Pause");
+    } else {
+      setIcon(ui.play, "play", "Play");
+    }
+
+    ui.root.classList.toggle("is-buffering", lastState.state === "buffering" || activeMode === "loading");
+    ui.current.textContent = formatClock(position / 1000);
+    ui.duration.textContent = length ? formatClock(length / 1000) : "--:--";
+
+    if (!dragging) {
+      const ratio = length ? clamp(position / length, 0, 1) : 0;
+
+      ui.fill.style.transform = `scaleX(${ratio})`;
+      ui.thumb.style.left = `${ratio * 100}%`;
+    }
+
+    const buffer = length ? clamp((Number(lastState.bufferedMs) || 0) / length, 0, 1) : 0;
+
+    ui.buffered.style.transform = `scaleX(${buffer})`;
+    ui.seek.setAttribute("aria-valuenow", String(Math.floor(position / 1000)));
+    ui.seek.setAttribute("aria-valuemax", String(Math.floor(length / 1000)));
+  }
+
+  // ----- seek bar ------------------------------------------------------------
+
+  function bindSeek(seek) {
+    const ratioAt = (event) => {
+      const rect = seek.getBoundingClientRect();
+
+      return clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
+    };
+
+    const preview = (ratio) => {
+      const length = Number(lastState.durationMs) || 0;
+
+      ui.fill.style.transform = `scaleX(${ratio})`;
+      ui.thumb.style.left = `${ratio * 100}%`;
+      ui.current.textContent = formatClock((ratio * length) / 1000);
+    };
+
+    seek.addEventListener("pointerdown", (event) => {
+      dragging = true;
+      seek.setPointerCapture(event.pointerId);
+      ui.root.classList.add("is-seeking");
+      showControls();
+      preview(ratioAt(event));
+      event.stopPropagation();
     });
 
-    bar.range.addEventListener("change", () => {
-      const duration = mediaState()?.duration || 0;
-
-      if (duration > 0) seek((duration * bar.range.value) / 1000);
-
-      bar.dragging = false;
-      setTimeout(syncBar, 120);
+    seek.addEventListener("pointermove", (event) => {
+      if (dragging) preview(ratioAt(event));
     });
 
-    bar.total = document.createElement("span");
-    bar.total.className = "clean-time";
-    bar.total.textContent = "0:00";
+    const finish = (event) => {
+      if (!dragging) return;
 
-    bar.mute = makeButton();
-    bar.mute.addEventListener("click", toggleMute);
+      dragging = false;
+      ui.root.classList.remove("is-seeking");
 
-    root.append(bar.play, bar.now, bar.range, bar.total, bar.mute);
+      const length = Number(lastState.durationMs) || 0;
 
-    // iPhone Safari cannot fullscreen a page element, so no button there.
-    if (document.fullscreenEnabled || document.webkitFullscreenEnabled) {
-      bar.full = makeButton();
-      bar.full.addEventListener("click", toggleFullscreen);
-      root.append(bar.full);
-    }
+      if (event.type === "pointerup" && length) {
+        seekToMs(ratioAt(event) * length);
+      }
 
-    setBarIcon(bar.play, "play", "Play");
-    setBarIcon(bar.mute, "volume", "Mute");
-    if (bar.full) setBarIcon(bar.full, "expand", "Fullscreen");
+      showControls();
+    };
 
-    host.append(root);
-    bar.root = root;
-
-    return root;
+    seek.addEventListener("pointerup", finish);
+    seek.addEventListener("pointercancel", finish);
   }
 
-  function syncBar() {
-    if (!bar.root || bar.root.hidden) return;
+  // ----- gestures ------------------------------------------------------------
 
-    const state = mediaState();
+  let hintTimer = 0;
 
-    if (!state) return;
+  function showHint(name, label, ratio) {
+    if (!ui) return;
 
-    setBarIcon(bar.play, state.playing ? "pause" : "play", state.playing ? "Pause" : "Play");
-    setBarIcon(bar.mute, state.muted ? "muted" : "volume", state.muted ? "Unmute" : "Mute");
+    ui.hintIcon.replaceChildren(icon(name));
+    ui.hintText.textContent = label;
+    ui.hintBar.hidden = ratio === null || ratio === undefined;
 
-    if (bar.full) {
-      const full = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+    if (!ui.hintBar.hidden) ui.hintFill.style.transform = `scaleX(${clamp(ratio, 0, 1)})`;
 
-      setBarIcon(bar.full, full ? "shrink" : "expand", full ? "Exit fullscreen" : "Fullscreen");
-    }
-
-    bar.range.disabled = !(state.duration > 0);
-    bar.total.textContent = formatClock(state.duration);
-
-    if (!bar.dragging) {
-      bar.range.value =
-        state.duration > 0
-          ? String(Math.min(1000, Math.round((state.time / state.duration) * 1000)))
-          : "0";
-      bar.now.textContent = formatClock(state.time);
-    }
-
-    paintRange();
+    ui.hint.hidden = false;
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => {
+      if (ui) ui.hint.hidden = true;
+    }, 900);
   }
 
-  function showBar() {
-    if (!ensureBar()) return;
-
-    bar.root.hidden = false;
-    clearInterval(bar.timer);
-    bar.timer = setInterval(syncBar, CONFIG.barPollMs);
-    syncBar();
+  function holdHint(name, label) {
+    showHint(name, label, null);
+    clearTimeout(hintTimer);
   }
 
-  function hideBar() {
-    clearInterval(bar.timer);
-    bar.timer = 0;
-    bar.dragging = false;
-
-    if (bar.root) bar.root.hidden = true;
+  function hideHint() {
+    clearTimeout(hintTimer);
+    if (ui) ui.hint.hidden = true;
   }
 
-  // ---------------------------------------------------------------------------
-  // Supabase library integration
-  // ---------------------------------------------------------------------------
+  let skipTotal = 0;
+  let skipTimer = 0;
 
-  function loadModuleScript(path, isReady) {
-    if (isReady()) return Promise.resolve();
+  function showRipple(side) {
+    if (!ui) return;
 
-    if (scriptPromises.has(path)) {
-      return scriptPromises.get(path);
+    ui.ripple.className = `pl-ripple is-${side}`;
+    ui.ripple.textContent =
+      side === "center" ? "" : `${skipTotal > 0 ? "+" : "\u2212"}${Math.abs(skipTotal)}s`;
+    ui.ripple.hidden = false;
+    clearTimeout(skipTimer);
+    skipTimer = setTimeout(() => {
+      skipTotal = 0;
+      if (ui) ui.ripple.hidden = true;
+    }, 650);
+  }
+
+  async function readDevice() {
+    const player = bridge()?.player;
+    const out = { brightness: 0.5, volume: 0.5 };
+
+    if (!player) return out;
+
+    try {
+      out.brightness = Number((await player.getBrightness()).value);
+      out.volume = Number((await player.getVolume()).value);
+    } catch {
+      // Keep the defaults.
     }
 
-    const promise = new Promise((resolve, reject) => {
-      const existing = [...document.scripts].find((script) => {
-        try {
-          return new URL(script.src, location.href).pathname === path;
-        } catch {
-          return false;
-        }
+    return out;
+  }
+
+  function bindGestures(surface) {
+    let press = null;
+    let longTimer = 0;
+    let boosting = false;
+    let mode = null;
+    let device = { brightness: 0.5, volume: 0.5 };
+    let lastTapAt = 0;
+    let tapTimer = 0;
+
+    const zoneOf = (event) => {
+      const rect = surface.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / Math.max(1, rect.width);
+
+      return x < 0.33 ? "left" : x > 0.67 ? "right" : "center";
+    };
+
+    const boost = (on) => {
+      const player = bridge()?.player;
+
+      if (!player) return;
+
+      boosting = on;
+      player.setSpeed({ speed: on ? CONFIG.boostRate : activeRate }).catch(() => {});
+
+      if (on) {
+        holdHint("speed", `${CONFIG.boostRate}\u00D7 speed`);
+      } else {
+        hideHint();
+      }
+    };
+
+    surface.addEventListener("pointerdown", (event) => {
+      surface.setPointerCapture(event.pointerId);
+      press = { x: event.clientX, y: event.clientY, moved: false };
+      mode = null;
+      readDevice().then((value) => {
+        device = value;
       });
 
-      let script = existing;
-      let settled = false;
+      longTimer = setTimeout(() => {
+        if (press && !press.moved && isPlayingNow()) boost(true);
+      }, CONFIG.longPressMs);
+    });
 
-      const timeout = setTimeout(() => {
-        finish(new Error(`Timed out loading ${path}.`));
-      }, CONFIG.moduleTimeoutMs);
+    surface.addEventListener("pointermove", (event) => {
+      if (!press || boosting) return;
 
-      function finish(error) {
-        if (settled) return;
-        settled = true;
+      const dx = event.clientX - press.x;
+      const dy = event.clientY - press.y;
 
-        clearTimeout(timeout);
+      if (!press.moved && Math.hypot(dx, dy) > 12) {
+        press.moved = true;
+        clearTimeout(longTimer);
 
-        if (script) {
-          script.removeEventListener("load", onLoad);
-          script.removeEventListener("error", onError);
-        }
+        if (Math.abs(dy) > Math.abs(dx)) {
+          const rect = surface.getBoundingClientRect();
 
-        if (error) {
-          reject(error);
-        } else if (isReady()) {
-          resolve();
-        } else {
-          reject(new Error(`Module did not initialize: ${path}.`));
+          mode = press.x - rect.left < rect.width / 2 ? "brightness" : "volume";
         }
       }
 
-      function onLoad() {
-        if (script) script.dataset.loaded = "true";
-        finish();
+      if (!mode || !press.moved) return;
+
+      const rect = surface.getBoundingClientRect();
+      const next = clamp(device[mode] - dy / (rect.height * 0.8), 0, 1);
+      const player = bridge()?.player;
+
+      if (mode === "brightness") {
+        player?.setBrightness({ value: Math.max(0.02, next) }).catch(() => {});
+        showHint("brightness", `${Math.round(next * 100)}%`, next);
+      } else {
+        player?.setVolume({ value: next }).catch(() => {});
+        showHint("volume", `${Math.round(next * 100)}%`, next);
+      }
+    });
+
+    const release = (event) => {
+      clearTimeout(longTimer);
+
+      const wasPress = press;
+
+      press = null;
+
+      if (boosting) {
+        boost(false);
+        return;
       }
 
-      function onError() {
-        finish(new Error(`Could not load ${path}.`));
-      }
+      if (!wasPress || wasPress.moved || event.type === "pointercancel") return;
 
-      if (existing?.dataset.loaded === "true") {
-        clearTimeout(timeout);
-        settled = true;
+      const zone = zoneOf(event);
+      const now = Date.now();
 
-        if (isReady()) {
-          resolve();
+      if (now - lastTapAt < CONFIG.doubleTapMs) {
+        clearTimeout(tapTimer);
+        lastTapAt = now;
+
+        if (zone === "center") {
+          togglePlay();
+          showControls();
         } else {
-          reject(new Error(`Module did not initialize: ${path}.`));
+          const delta = zone === "left" ? -CONFIG.skipSeconds : CONFIG.skipSeconds;
+
+          skipTotal += delta;
+          skip(delta);
+          showRipple(zone);
         }
 
         return;
       }
 
-      script = existing || document.createElement("script");
+      lastTapAt = now;
+      clearTimeout(tapTimer);
+      tapTimer = setTimeout(toggleControls, CONFIG.doubleTapMs);
+    };
 
-      script.addEventListener("load", onLoad, { once: true });
-      script.addEventListener("error", onError, { once: true });
-
-      if (!existing) {
-        script.src = path;
-        script.async = true;
-        document.body.append(script);
-      }
-    });
-
-    scriptPromises.set(path, promise);
-
-    promise.catch(() => {
-      scriptPromises.delete(path);
-    });
-
-    return promise;
+    surface.addEventListener("pointerup", release);
+    surface.addEventListener("pointercancel", release);
   }
 
-  async function ensureLibrary() {
-    if (!window.AyuTubeAuth?.getCurrentUser) {
-      await loadModuleScript(
-        MODULE_PATHS.auth,
-        () => Boolean(window.AyuTubeAuth?.getCurrentUser)
+  // ----- settings sheet --------------------------------------------------------
+
+  let sheet = null;
+
+  function updateBackIntercept() {
+    bridge()?.player?.setBackIntercept({ enabled: fullscreen || Boolean(sheet) }).catch(() => {});
+  }
+
+  function closeSheet() {
+    sheet?.remove();
+    sheet = null;
+    updateBackIntercept();
+    showControls();
+  }
+
+  function qualityLabel() {
+    if (!selectedQuality) return "Auto";
+
+    return storage.get(QUALITY_KEY, "auto") === "auto"
+      ? `Auto (${selectedQuality.label})`
+      : selectedQuality.label;
+  }
+
+  function audioLabel(stream) {
+    if (!stream) return "Default";
+
+    const name = stream.trackName || stream.locale || "Default";
+
+    return `${name} \u00B7 ${Math.round(Number(stream.bitrate) / 1000) || Number(stream.bitrate) || 0}k`;
+  }
+
+  function openSheet(view) {
+    if (!activeItem) return;
+
+    sheet?.remove();
+
+    const backdrop = el("div", "pl-sheet-backdrop");
+    const panel = el("div", "pl-sheet");
+
+    backdrop.addEventListener("click", (event) => {
+      if (event.target === backdrop) closeSheet();
+    });
+
+    const row = (label, value, onClick, selected) => {
+      const node = el("button", `pl-row${selected ? " is-selected" : ""}`);
+
+      node.type = "button";
+      node.append(el("span", "pl-row-label", label));
+
+      if (value !== undefined) node.append(el("span", "pl-row-value", value));
+      if (selected) node.append(icon("check"));
+      else if (onClick && view === "main") node.append(icon("chevron"));
+
+      node.addEventListener("click", onClick);
+
+      return node;
+    };
+
+    const head = (label) => {
+      const bar = el("div", "pl-sheet-head");
+      const backButton = el("button", "pl-btn");
+
+      backButton.type = "button";
+      backButton.setAttribute("aria-label", "Back");
+      backButton.append(icon("chevronBack"));
+      backButton.addEventListener("click", () => openSheet("main"));
+      bar.append(backButton, el("span", "pl-sheet-title", label));
+      panel.append(bar);
+    };
+
+    if (view === "main") {
+      panel.append(el("div", "pl-sheet-title pl-sheet-solo", "Playback"));
+      panel.append(
+        row("Quality", qualityLabel(), () => openSheet("quality")),
+        row("Speed", `${activeRate}\u00D7`, () => openSheet("speed")),
+        row("Audio", audioLabel(selectedAudio), () => openSheet("audio")),
+        row("Aspect ratio", RESIZE_MODES.find((m) => m.id === resizeMode)?.label, () => openSheet("resize"))
       );
+    } else if (view === "quality") {
+      head("Quality");
+      panel.append(
+        row("Auto (up to 720p)", undefined, () => chooseQuality("auto"), storage.get(QUALITY_KEY, "auto") === "auto")
+      );
+
+      for (const entry of choice.qualities) {
+        panel.append(
+          row(
+            entry.label,
+            entry.muxed ? "with audio" : undefined,
+            () => chooseQuality(entry),
+            storage.get(QUALITY_KEY, "auto") !== "auto" && selectedQuality === entry
+          )
+        );
+      }
+    } else if (view === "speed") {
+      head("Speed");
+
+      for (const rate of RATES) {
+        panel.append(row(`${rate}\u00D7`, undefined, () => {
+          setRate(rate);
+          closeSheet();
+        }, rate === activeRate));
+      }
+    } else if (view === "audio") {
+      head("Audio");
+
+      const streams = (info?.audioStreams || []).filter((s) => s?.url);
+
+      if (!streams.length) panel.append(el("p", "pl-sheet-empty", "No separate audio tracks."));
+
+      for (const stream of streams) {
+        panel.append(row(audioLabel(stream), undefined, () => chooseAudio(stream), selectedAudio === stream));
+      }
+    } else if (view === "resize") {
+      head("Aspect ratio");
+
+      for (const mode of RESIZE_MODES) {
+        panel.append(row(mode.label, undefined, () => {
+          resizeMode = mode.id;
+          storage.set(RESIZE_KEY, mode.id);
+          bridge()?.player?.setResizeMode({ mode: mode.id }).catch(() => {});
+          closeSheet();
+        }, mode.id === resizeMode));
+      }
     }
 
-    if (!window.AyuTubeLibrary?.saveHistoryEntry) {
-      await loadModuleScript(
-        MODULE_PATHS.library,
-        () => Boolean(window.AyuTubeLibrary?.saveHistoryEntry)
-      );
+    backdrop.append(panel);
+    document.body.append(backdrop);
+    sheet = backdrop;
+    updateBackIntercept();
+    clearTimeout(hideTimer);
+  }
+
+  // ----- fullscreen -----------------------------------------------------------
+
+  async function setFullscreen(on) {
+    if (fullscreen === on) return;
+
+    fullscreen = on;
+    dom.panel.querySelector(".watch-player")?.classList.toggle("pl-fs", on);
+    root.classList.toggle("pl-fs-active", on);
+
+    if (ui) {
+      setIcon(ui.fs, on ? "fullscreenExit" : "fullscreen", on ? "Exit fullscreen" : "Fullscreen");
     }
+
+    try {
+      await bridge()?.player?.setFullscreen({ enabled: on });
+    } catch {
+      // Fullscreen is cosmetic; keep playing.
+    }
+
+    updateBackIntercept();
+
+    for (const delay of [0, 120, 350, 700]) {
+      setTimeout(() => syncBounds(true), delay);
+    }
+
+    showControls();
+  }
+
+  // ----- native video area ------------------------------------------------------
+
+  let lastBounds = "";
+
+  function syncBounds(force = false) {
+    const player = bridge()?.player;
+
+    if (!player) return;
+
+    const visible = activeMode !== "idle" && !dom.panel.hidden;
+
+    root.classList.toggle("native-hole", visible);
+
+    const rect = dom.frame.getBoundingClientRect();
+    const usable = visible && rect.width > 0 && rect.height > 0;
+    const key = usable
+      ? [rect.left, rect.top, rect.width, rect.height].map(Math.round).join(",")
+      : "off";
+
+    if (!force && key === lastBounds) return;
+
+    lastBounds = key;
+
+    player
+      .setBounds(
+        usable
+          ? { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
+          : { x: 0, y: 0, width: 0, height: 0 }
+      )
+      .catch(() => {});
+  }
+
+  new ResizeObserver(() => syncBounds()).observe(dom.frame);
+  window.addEventListener("resize", () => syncBounds(), { passive: true });
+  window.addEventListener("scroll", () => syncBounds(), { passive: true });
+  setInterval(() => {
+    if (activeMode !== "idle") syncBounds();
+  }, CONFIG.syncMs);
+
+  // ---------------------------------------------------------------------------
+  // Watch history
+  // ---------------------------------------------------------------------------
+
+  function safeSeconds(value) {
+    return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
   }
 
   function currentProgress() {
-    if (!activeItem) {
-      return { progressSeconds: 0, durationSeconds: null };
-    }
+    if (!activeItem) return { progressSeconds: 0, durationSeconds: null };
 
-    if (activeMode === "direct") {
-      return {
-        progressSeconds: safeSeconds(dom.video.currentTime),
-        durationSeconds: safeDuration(dom.video.duration)
-      };
-    }
+    const duration = safeSeconds((Number(lastState.durationMs) || 0) / 1000);
 
-    if (activeMode === "youtube" && youtubePlayer) {
-      try {
-        return {
-          progressSeconds: safeSeconds(youtubePlayer.getCurrentTime()),
-          durationSeconds: safeDuration(youtubePlayer.getDuration())
-        };
-      } catch {
-        // The player may not be ready to report progress.
-      }
-    }
-
-    return { progressSeconds: 0, durationSeconds: null };
-  }
-
-  function safeSeconds(value) {
-    return Number.isFinite(value) && value >= 0
-      ? Math.floor(value)
-      : 0;
-  }
-
-  function safeDuration(value) {
-    return Number.isFinite(value) && value >= 0
-      ? Math.floor(value)
-      : null;
+    return {
+      progressSeconds: safeSeconds((Number(lastState.positionMs) || 0) / 1000),
+      durationSeconds: duration > 0 ? duration : null
+    };
   }
 
   function historyPaused() {
-    try {
-      return localStorage.getItem("ayutube.noHistory") === "true";
-    } catch {
-      return false;
-    }
+    return storage.get("ayutube.noHistory", "false") === "true";
   }
 
   function queueHistory(force = false) {
-    if (!activeItem) return;
-
-    // "Pause history" is on: watch progress is not saved.
-    if (historyPaused()) return;
+    if (!activeItem || historyPaused()) return;
 
     const progress = currentProgress();
     const now = Date.now();
 
     if (!force) {
-      const enoughTimePassed =
-        now - lastHistoryQueuedAt >= CONFIG.historyIntervalMs;
-
+      const enoughTimePassed = now - lastHistoryQueuedAt >= CONFIG.historyIntervalMs;
       const enoughProgress =
-        Math.abs(progress.progressSeconds - lastQueuedProgress) >=
-        CONFIG.historyMinimumProgressDelta;
+        Math.abs(progress.progressSeconds - lastQueuedProgress) >= CONFIG.historyMinimumProgressDelta;
 
-      if (!enoughTimePassed || !enoughProgress) {
-        return;
-      }
+      if (!enoughTimePassed || !enoughProgress) return;
     }
 
     lastHistoryQueuedAt = now;
     lastQueuedProgress = progress.progressSeconds;
-
-    pendingHistory = {
-      item: { ...activeItem },
-      progress,
-      token: activeToken
-    };
-
+    pendingHistory = { item: { ...activeItem }, progress, token: activeToken };
     void flushHistory();
   }
 
@@ -919,723 +999,61 @@
     historyWritePromise = (async () => {
       while (pendingHistory) {
         const snapshot = pendingHistory;
+
         pendingHistory = null;
 
-        if (!snapshot.item?.id) continue;
+        if (!snapshot.item?.id || !window.AyuTubeLibrary?.saveHistoryEntry) continue;
 
         try {
-          await ensureLibrary();
-
-          const currentUser = await window.AyuTubeAuth.getCurrentUser();
-
-          // Watch history is private and only recorded for signed-in users.
-          if (!currentUser) {
-            historyAuthStatus = "signed-out";
-            continue;
-          }
-
-          historyAuthStatus = "signed-in";
-
-          await window.AyuTubeLibrary.saveHistoryEntry(
-            snapshot.item,
-            snapshot.progress
-          );
+          await window.AyuTubeLibrary.saveHistoryEntry(snapshot.item, snapshot.progress);
         } catch (error) {
-          // Do not interrupt video playback if the optional library service
-          // is offline or not configured yet.
-          console.debug(
-            "AyuTube could not save playback history:",
-            error.message
-          );
+          console.debug("AyuTube could not save playback history:", error.message);
         }
       }
     })().finally(() => {
       historyWritePromise = null;
-
-      if (pendingHistory) {
-        void flushHistory();
-      }
+      if (pendingHistory) void flushHistory();
     });
 
     return historyWritePromise;
   }
 
   // ---------------------------------------------------------------------------
-  // Direct media playback
+  // Playback control
   // ---------------------------------------------------------------------------
 
-  function bindDirectVideoEvents(item, token) {
-    dom.video.onplaying = () => {
-      if (!isCurrent(token) || activeMode !== "direct") return;
-
-      finishLoading();
-      queueHistory(true);
-      emit("state", "playing");
-    };
-
-    dom.video.ontimeupdate = () => {
-      if (!isCurrent(token) || activeMode !== "direct") return;
-
-      queueHistory(false);
-    };
-
-    dom.video.onpause = () => {
-      if (!isCurrent(token) || activeMode !== "direct") return;
-
-      queueHistory(true);
-      emit("state", "paused");
-    };
-
-    dom.video.onended = () => {
-      if (!isCurrent(token) || activeMode !== "direct") return;
-
-      queueHistory(true);
-      emit("state", "ended");
-      emit("ended", item);
-    };
-
-    dom.video.onerror = () => {
-      if (!isCurrent(token) || activeMode !== "direct") return;
-
-      useYouTubeFallback(item, token);
-    };
+  function nativePlayer() {
+    return bridge()?.player || null;
   }
 
-  function validateStreamUrl(value) {
-    if (typeof value !== "string" || !value.trim()) {
-      return false;
-    }
+  function togglePlay() {
+    const player = nativePlayer();
 
-    try {
-      const url = new URL(value);
+    if (!player || !activeItem) return;
 
-      // HTTPS prevents mixed-content playback on the deployed site.
-      return url.protocol === "https:" && Boolean(url.hostname);
-    } catch {
-      return false;
+    if (lastState.state === "ended" || !isPlayingNow()) {
+      player.play().catch(() => {});
+    } else {
+      player.pause().catch(() => {});
     }
   }
 
-  function validateStream(stream) {
-    if (!stream || typeof stream !== "object") return false;
-    if (!validateStreamUrl(stream.url)) return false;
+  function seekToMs(ms) {
+    const player = nativePlayer();
 
-    if (stream.mimeType) {
-      return /^(video|audio)\/(mp4|webm)(?:;|$)/i.test(stream.mimeType);
-    }
+    if (!player || !activeItem) return;
 
-    return true;
+    const length = Number(lastState.durationMs) || 0;
+    const target = clamp(ms, 0, length || Math.max(0, ms));
+
+    lastState = { ...lastState, positionMs: target };
+    paintControls();
+    player.seekTo({ ms: Math.floor(target) }).catch(() => {});
   }
 
-  async function tryDirectPlayback(item, token) {
-    if (!window.MiniTubeAPI?.streams) {
-      throw new Error("The stream API is not ready.");
-    }
-
-    let timeoutId;
-
-    const timeout = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(new Error("Stream lookup timed out."));
-      }, CONFIG.streamTimeoutMs);
-    });
-
-    let response;
-
-    try {
-      response = await Promise.race([
-        window.MiniTubeAPI.streams(item.id),
-        timeout
-      ]);
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    if (!isCurrent(token)) return;
-
-    const streams = Array.isArray(response?.videoStreams)
-      ? response.videoStreams
-      : [];
-
-    const playable = streams
-      .filter(validateStream)
-      .sort(
-        (a, b) =>
-          Number(Boolean(a.videoOnly)) -
-          Number(Boolean(b.videoOnly))
-      );
-
-    if (!playable.length) {
-      throw new Error("No compatible direct stream.");
-    }
-
-    const stream = playable[0];
-
-    activeMode = "direct";
-
-    destroyYoutubePlayer();
-
-    const clean = cleanControlsOn();
-
-    dom.video.hidden = false;
-    dom.video.controls = !clean;
-    dom.video.playsInline = true;
-    dom.video.preload = "metadata";
-    dom.video.src = stream.url;
-    dom.video.playbackRate = activeRate;
-
-    if (activeStart > 0) {
-      dom.video.addEventListener(
-        "loadedmetadata",
-        () => {
-          try {
-            dom.video.currentTime = activeStart;
-          } catch {
-            // Seeking is best effort.
-          }
-        },
-        { once: true }
-      );
-    }
-
-    const iframe = getIframe();
-    iframe.hidden = true;
-    iframe.removeAttribute("src");
-
-    bindDirectVideoEvents(item, token);
-
-    // Wait until the stream is usable. A load error is handled by the
-    // video's onerror handler (it switches to the YouTube player).
-    const outcome = await new Promise((resolve, reject) => {
-      const timer = setTimeout(
-        () => finish(() => reject(new Error("The stream took too long to load."))),
-        CONFIG.streamLoadTimeoutMs
-      );
-
-      function finish(done) {
-        clearTimeout(timer);
-        dom.video.removeEventListener("loadedmetadata", onReady);
-        dom.video.removeEventListener("error", onError);
-        done();
-      }
-
-      function onReady() {
-        finish(() => resolve("ready"));
-      }
-
-      function onError() {
-        finish(() => resolve("error"));
-      }
-
-      dom.video.addEventListener("loadedmetadata", onReady, { once: true });
-      dom.video.addEventListener("error", onError, { once: true });
-    });
-
-    if (outcome !== "ready" || !isCurrent(token) || activeMode !== "direct") {
-      return;
-    }
-
-    if (clean) showBar();
-
-    // Start right away, under the line. The "playing" event removes it.
-    dom.video.play()?.catch?.(() => {
-      // Autoplay restrictions are not a stream failure; controls remain.
-    });
-
-    armStartFallback(token);
+  function skip(seconds) {
+    seekToMs((Number(lastState.positionMs) || 0) + seconds * 1000);
   }
-
-  // ---------------------------------------------------------------------------
-  // YouTube iframe API
-  // ---------------------------------------------------------------------------
-
-  function loadYouTubeApi() {
-    if (window.YT?.Player) {
-      return Promise.resolve(window.YT);
-    }
-
-    if (youtubeApiPromise) return youtubeApiPromise;
-
-    youtubeApiPromise = new Promise((resolve, reject) => {
-      let settled = false;
-
-      const previousCallback = window.onYouTubeIframeAPIReady;
-
-      const timeout = setTimeout(() => {
-        finish(new Error("The YouTube player API timed out."));
-      }, 12000);
-
-      function finish(error) {
-        if (settled) return;
-        settled = true;
-
-        clearTimeout(timeout);
-
-        if (error) {
-          reject(error);
-        } else if (window.YT?.Player) {
-          resolve(window.YT);
-        } else {
-          reject(new Error("The YouTube player API is unavailable."));
-        }
-      }
-
-      window.onYouTubeIframeAPIReady = () => {
-        try {
-          if (typeof previousCallback === "function") {
-            previousCallback();
-          }
-        } catch (error) {
-          console.debug("Previous YouTube API callback failed:", error);
-        }
-
-        finish();
-      };
-
-      const existingScript = [...document.scripts].find((script) => {
-        try {
-          return new URL(script.src).pathname === "/iframe_api" &&
-            new URL(script.src).hostname === "www.youtube.com";
-        } catch {
-          return false;
-        }
-      });
-
-      if (!existingScript) {
-        const script = document.createElement("script");
-        script.src = "https://www.youtube.com/iframe_api";
-        script.async = true;
-        script.onerror = () => {
-          finish(new Error("Unable to load the YouTube player API."));
-        };
-
-        document.head.append(script);
-      }
-    }).catch((error) => {
-      youtubeApiPromise = null;
-      throw error;
-    });
-
-    return youtubeApiPromise;
-  }
-
-  function handleYouTubeState(event, token) {
-    if (!isCurrent(token)) return;
-
-    const state = event?.data;
-    const states = window.YT?.PlayerState;
-
-    if (!states) return;
-
-    if (state === states.PLAYING) {
-      finishLoading();
-      queueHistory(true);
-      emit("state", "playing");
-
-      clearYoutubeProgressTimer();
-
-      youtubeProgressTimer = setInterval(() => {
-        if (!isCurrent(token) || activeMode !== "youtube") {
-          clearYoutubeProgressTimer();
-          return;
-        }
-
-        queueHistory(false);
-      }, CONFIG.historyIntervalMs);
-
-      return;
-    }
-
-    if (state === states.PAUSED) {
-      clearYoutubeProgressTimer();
-      queueHistory(true);
-      emit("state", "paused");
-      return;
-    }
-
-    if (state === states.ENDED) {
-      clearYoutubeProgressTimer();
-      queueHistory(true);
-      emit("state", "ended");
-      emit("ended", activeItem);
-    }
-  }
-
-  function handleYouTubeError(error, token) {
-    if (!isCurrent(token)) return;
-
-    clearYoutubeProgressTimer();
-
-    console.warn("YouTube embed returned an error:", error?.data);
-
-    hideBar();
-
-    showMessage(
-      "This video can't be played here.",
-      true
-    );
-
-    showWatchLink();
-  }
-
-  async function attachYouTubePlayer(item, token) {
-    try {
-      const YT = await loadYouTubeApi();
-
-      if (!isCurrent(token)) return;
-
-      activeMode = "youtube";
-      dom.video.hidden = true;
-      dom.video.pause();
-
-      const iframe = getIframe();
-
-      iframe.hidden = false;
-      iframe.title = item.title;
-      iframe.referrerPolicy = "strict-origin-when-cross-origin";
-      iframe.allowFullscreen = true;
-      iframe.allow =
-        "autoplay; encrypted-media; picture-in-picture; fullscreen";
-
-      showLoading(token);
-
-      // Clean controls: hide YouTube's bar and show ours under the video.
-      const clean = cleanControlsOn();
-
-      // When YT.Player receives an existing <iframe>, it attaches to that
-      // iframe's current src (videoId/playerVars are ignored). The src must
-      // therefore already be the embed URL with enablejsapi=1.
-      iframe.src = youtubeEmbedUrl(item.id, activeStart, false, clean);
-
-      let playerReady = false;
-
-      // If the player never reports ready (blocked embed, network problem),
-      // stop showing "Loading…" forever and offer the YouTube link instead.
-      setTimeout(() => {
-        if (playerReady || !isCurrent(token) || activeMode !== "youtube") {
-          return;
-        }
-
-        handleYouTubeError({ data: "ready-timeout" }, token);
-      }, CONFIG.youtubeReadyTimeoutMs);
-
-      youtubePlayer = new YT.Player(iframe, {
-        events: {
-          onReady: (event) => {
-            playerReady = true;
-
-            if (!isCurrent(token)) {
-              try {
-                event.target.destroy();
-              } catch {}
-              return;
-            }
-
-            try {
-              event.target.setPlaybackRate(activeRate);
-            } catch {
-              // Not every video supports every speed.
-            }
-
-            if (clean) showBar();
-
-            // Start right away, under the line. The PLAYING state removes it.
-            try {
-              event.target.playVideo();
-            } catch {
-              // The player controls remain available.
-            }
-
-            armStartFallback(token);
-          },
-          onStateChange: (event) => {
-            handleYouTubeState(event, token);
-          },
-          onError: (event) => {
-            handleYouTubeError(event, token);
-          }
-        }
-      });
-    } catch (error) {
-      if (!isCurrent(token)) return;
-
-      console.warn("YouTube API setup failed:", error.message);
-
-      attachRawYouTubeIframe(item, token);
-    }
-  }
-
-  function attachRawYouTubeIframe(item, token) {
-    if (!isCurrent(token)) return;
-
-    try {
-      activeMode = "youtube-iframe";
-
-      dom.video.hidden = true;
-      dom.video.pause();
-
-      const iframe = getIframe();
-
-      iframe.hidden = false;
-      iframe.title = item.title;
-      iframe.referrerPolicy = "strict-origin-when-cross-origin";
-      iframe.allowFullscreen = true;
-      iframe.allow =
-        "autoplay; encrypted-media; picture-in-picture; fullscreen";
-
-      iframe.src = youtubeEmbedUrl(item.id, activeStart);
-
-      // This path is used only if the IFrame API itself is unavailable.
-      // The embed autoplays and cannot report playback time; the line stays
-      // until the frame has loaded.
-      showLoading(token);
-
-      const ready = () => {
-        if (isCurrent(token)) finishLoading();
-      };
-
-      iframe.addEventListener("load", ready, { once: true });
-      setTimeout(ready, CONFIG.youtubeReadyTimeoutMs);
-    } catch {
-      showMessage("This video can't be played here.", true);
-      showWatchLink();
-    }
-  }
-
-  async function useYouTubeFallback(item, token) {
-    if (!isCurrent(token)) return;
-
-    console.warn("Direct playback failed; using YouTube fallback.");
-
-    clearYoutubeProgressTimer();
-
-    try {
-      dom.video.pause();
-      dom.video.removeAttribute("src");
-      dom.video.load();
-    } catch {
-      // Continue to the fallback player.
-    }
-
-    dom.video.onerror = null;
-    dom.video.onplaying = null;
-    dom.video.onpause = null;
-    dom.video.onended = null;
-    dom.video.ontimeupdate = null;
-
-    const iframe = getIframe();
-    iframe.hidden = false;
-
-    showLoading(token);
-
-    await attachYouTubePlayer(item, token);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Main player API
-  // ---------------------------------------------------------------------------
-
-  async function play(rawItem, options = {}) {
-    let item;
-
-    try {
-      item = normalizeItem(rawItem);
-    } catch (error) {
-      showMessage(error.message || "Select a valid video.", true);
-      return;
-    }
-
-    const token = ++activeToken;
-
-    const start = Number(options?.start);
-    activeStart = Number.isFinite(start) && start > 0 ? Math.floor(start) : 0;
-
-    activeItem = item;
-    activeMode = "loading";
-
-    historyAuthStatus = "unknown";
-    lastHistoryQueuedAt = 0;
-    lastQueuedProgress = -1;
-    pendingHistory = null;
-
-    clearYoutubeProgressTimer();
-    resetMedia();
-
-    activeItem = item;
-    activeMode = "loading";
-
-    dom.panel.hidden = false;
-    dom.title.textContent = item.title;
-    dom.channel.textContent = item.uploaderName || "";
-
-    emit("play", item);
-
-    // The YouTube link remains hidden unless the embed reports an error.
-    dom.watchLink.href = youtubeWatchUrl(item.id);
-    dom.watchLink.hidden = true;
-
-    showLoading(token);
-
-    try {
-      dom.panel.scrollIntoView({
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ? "auto"
-          : "smooth",
-        block: "start"
-      });
-    } catch {
-      // Scrolling is optional.
-    }
-
-    try {
-      if (!window.MiniTubeAPI?.streams) {
-        const existingApi = window.MiniTubeAPI || window.AyuTubeAPI;
-
-        if (typeof existingApi?.streams !== "function") {
-          throw new Error("The stream API is unavailable.");
-        }
-      }
-
-      await tryDirectPlayback(item, token);
-    } catch (error) {
-      if (!isCurrent(token)) return;
-
-      console.debug("Direct playback failed:", error.message);
-
-      await useYouTubeFallback(item, token);
-    }
-  }
-
-  function close() {
-    // Invalidate pending network requests and media events before cleanup.
-    activeToken += 1;
-    activeItem = null;
-    activeMode = "idle";
-
-    pendingHistory = null;
-
-    resetMedia();
-
-    dom.panel.hidden = true;
-    dom.title.textContent = "";
-    dom.channel.textContent = "";
-
-    emit("close");
-  }
-
-  /**
-   * Pause whatever is currently playing without closing the player.
-   * Used when the person leaves the Explore tab.
-   */
-  function pause() {
-    if (!activeItem) return;
-
-    try {
-      if (activeMode === "direct") {
-        dom.video.pause();
-        return;
-      }
-
-      if (activeMode === "youtube" && youtubePlayer) {
-        youtubePlayer.pauseVideo();
-        return;
-      }
-
-      if (activeMode === "youtube-iframe") {
-        // The embed URL includes enablejsapi=1, so it accepts this command.
-        const iframe = document.getElementById("youtube-player");
-
-        iframe?.contentWindow?.postMessage(
-          JSON.stringify({
-            event: "command",
-            func: "pauseVideo",
-            args: []
-          }),
-          "https://www.youtube.com"
-        );
-      }
-    } catch (error) {
-      console.debug("AyuTube could not pause playback:", error);
-    }
-  }
-
-  /**
-   * True while a video is loaded in the player panel.
-   */
-  function isActive() {
-    return Boolean(activeItem);
-  }
-
-  dom.closeButton.addEventListener("click", close);
-
-  function commandIframe(func, args = []) {
-    const iframe = document.getElementById("youtube-player");
-
-    iframe?.contentWindow?.postMessage(
-      JSON.stringify({ event: "command", func, args }),
-      "https://www.youtube.com"
-    );
-  }
-
-  /** Continue playback after pause(). */
-  function resume() {
-    if (!activeItem) return;
-
-    try {
-      if (activeMode === "direct") {
-        dom.video.play()?.catch?.(() => {});
-      } else if (activeMode === "youtube" && youtubePlayer) {
-        youtubePlayer.playVideo();
-      } else if (activeMode === "youtube-iframe") {
-        commandIframe("playVideo");
-      }
-    } catch (error) {
-      console.debug("AyuTube could not resume playback:", error);
-    }
-  }
-
-  /** True when the current position can be read (not the bare iframe mode). */
-  function canTrackTime() {
-    return (
-      activeMode === "direct" ||
-      (activeMode === "youtube" &&
-        typeof youtubePlayer?.getCurrentTime === "function")
-    );
-  }
-
-  function getCurrentTime() {
-    try {
-      if (activeMode === "direct") return Number(dom.video.currentTime) || 0;
-
-      if (activeMode === "youtube" && youtubePlayer?.getCurrentTime) {
-        return Number(youtubePlayer.getCurrentTime()) || 0;
-      }
-    } catch {
-      // Fall through to 0.
-    }
-
-    return 0;
-  }
-
-  function seek(seconds) {
-    const target = Math.max(0, Number(seconds) || 0);
-
-    if (!activeItem) return;
-
-    try {
-      if (activeMode === "direct") {
-        dom.video.currentTime = target;
-      } else if (activeMode === "youtube" && youtubePlayer) {
-        youtubePlayer.seekTo(target, true);
-      } else if (activeMode === "youtube-iframe") {
-        commandIframe("seekTo", [target, true]);
-      }
-    } catch (error) {
-      console.debug("AyuTube could not seek:", error);
-    }
-  }
-
-  const RATES = Object.freeze([0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]);
 
   function setRate(rate) {
     const value = Number(rate);
@@ -1643,32 +1061,328 @@
     if (!RATES.includes(value)) return activeRate;
 
     activeRate = value;
-
-    try {
-      if (activeMode === "direct") {
-        dom.video.playbackRate = value;
-      } else if (activeMode === "youtube" && youtubePlayer) {
-        youtubePlayer.setPlaybackRate(value);
-      } else if (activeMode === "youtube-iframe") {
-        commandIframe("setPlaybackRate", [value]);
-      }
-    } catch (error) {
-      console.debug("AyuTube could not change speed:", error);
-    }
+    nativePlayer()?.setSpeed({ speed: value }).catch(() => {});
 
     return activeRate;
   }
 
-  /**
-   * Fill in details that were unknown when playback started (for example a
-   * shared link that only carried the video ID).
-   */
+  function currentSeconds() {
+    return Math.floor((Number(lastState.positionMs) || 0) / 1000);
+  }
+
+  async function startNative(positionSeconds, autoplay, token) {
+    const player = nativePlayer();
+
+    if (!player || !info) throw new Error("Playback needs the AyuTube app.");
+
+    const args = {
+      startMs: Math.max(0, Math.round(positionSeconds * 1000)),
+      autoplay,
+      speed: activeRate
+    };
+
+    if (info.livestream && info.hls) {
+      args.hlsUrl = info.hls;
+    } else if (selectedQuality) {
+      args.videoUrl = selectedQuality.stream.url;
+
+      if (!selectedQuality.muxed && selectedAudio) args.audioUrl = selectedAudio.url;
+    } else if (selectedAudio) {
+      args.audioUrl = selectedAudio.url;
+    } else if (info.hls) {
+      args.hlsUrl = info.hls;
+    } else {
+      throw new Error("No playable stream was found for this video.");
+    }
+
+    await player.open(args);
+
+    if (!isCurrent(token)) return;
+
+    activeMode = "native";
+    await player.setResizeMode({ mode: resizeMode }).catch(() => {});
+    syncBounds(true);
+    clearTimeout(startTimer);
+    startTimer = setTimeout(() => {
+      if (isCurrent(token) && gate) {
+        showError("This video is taking too long to start.");
+      }
+    }, CONFIG.startTimeoutMs);
+  }
+
+  function prepareStreams() {
+    choice = window.AyuStreamSelect.buildQualities(info);
+    triedMuxed = false;
+
+    const preferred = storage.get(QUALITY_KEY, "auto");
+    const height = preferred === "auto" ? 720 : Number(preferred) || 720;
+
+    selectedQuality = window.AyuStreamSelect.defaultQuality(choice.qualities, height);
+
+    const mp4 = !selectedQuality || String(selectedQuality.stream.mimeType || "").includes("mp4");
+
+    selectedAudio = window.AyuStreamSelect.pickAudio(info, mp4);
+  }
+
+  async function reopenHere(autoplay) {
+    if (!activeItem || !info) return;
+
+    const token = activeToken;
+
+    showLoading(token);
+    activeMode = "loading";
+
+    try {
+      await startNative(currentSeconds(), autoplay, token);
+    } catch (error) {
+      if (isCurrent(token)) showError(error.message || "Could not change the stream.");
+    }
+  }
+
+  function chooseQuality(entry) {
+    if (entry === "auto") {
+      storage.set(QUALITY_KEY, "auto");
+      prepareStreams();
+    } else {
+      storage.set(QUALITY_KEY, entry.height);
+      selectedQuality = entry;
+      selectedAudio = window.AyuStreamSelect.pickAudio(
+        info,
+        String(entry.stream.mimeType || "").includes("mp4")
+      );
+    }
+
+    closeSheet();
+    void reopenHere(isPlayingNow() || lastState.playWhenReady);
+  }
+
+  function chooseAudio(stream) {
+    selectedAudio = stream;
+    closeSheet();
+    void reopenHere(isPlayingNow() || lastState.playWhenReady);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Native events
+  // ---------------------------------------------------------------------------
+
+  function onNativeState(state) {
+    if (!activeItem || activeMode === "idle") return;
+
+    const wasPlaying = Boolean(lastState.playing);
+
+    lastState = state || {};
+
+    if (gate && (lastState.state === "ready" || lastState.playing)) finishLoading();
+
+    paintControls();
+
+    if (Boolean(lastState.playing) !== wasPlaying) {
+      emit("state", lastState.playing ? "playing" : "paused");
+      showControls();
+
+      if (!lastState.playing && lastState.state !== "ended") queueHistory(true);
+    }
+
+    if (lastState.playing) queueHistory(false);
+  }
+
+  function onNativeEnded() {
+    if (!activeItem) return;
+
+    queueHistory(true);
+    paintControls();
+    showControls();
+    emit("state", "ended");
+    emit("ended", activeItem);
+  }
+
+  function onNativeError(error) {
+    if (!activeItem) return;
+
+    console.error("AyuTube native player error:", error);
+
+    // A separate video + audio pair failed: try the single muxed stream once.
+    if (!triedMuxed && selectedQuality && !selectedQuality.muxed && choice.muxed) {
+      triedMuxed = true;
+      selectedQuality = choice.muxed;
+      selectedAudio = null;
+      void reopenHere(true);
+      return;
+    }
+
+    showError(
+      `This video could not be played (${error?.codeName || error?.code || "error"}).`,
+      error?.cause
+    );
+  }
+
+  function onBack() {
+    if (sheet) {
+      closeSheet();
+    } else if (fullscreen) {
+      void setFullscreen(false);
+    }
+  }
+
+  function wireNative() {
+    const player = nativePlayer();
+
+    if (wired || !player) return;
+
+    wired = true;
+    player.addListener("state", onNativeState);
+    player.addListener("ended", onNativeEnded);
+    player.addListener("error", onNativeError);
+    window.addEventListener("ayutubeBack", onBack);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
+
+  async function fetchStreams(id) {
+    const response = await fetch(`/api/streams?id=${encodeURIComponent(id)}`);
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) throw new Error(data?.error || "Could not load this video.");
+
+    return data;
+  }
+
+  async function play(rawItem, options = {}) {
+    let item;
+
+    try {
+      item = normalizeItem(rawItem);
+    } catch (error) {
+      dom.message.className = "player-message";
+      dom.message.textContent = error.message || "Select a valid video.";
+      dom.message.hidden = false;
+      return;
+    }
+
+    const token = ++activeToken;
+    const start = Number(options?.start);
+
+    activeStart = Number.isFinite(start) && start > 0 ? Math.floor(start) : 0;
+    activeItem = item;
+    activeMode = "loading";
+    info = null;
+    lastState = {};
+    lastHistoryQueuedAt = 0;
+    lastQueuedProgress = -1;
+    pendingHistory = null;
+
+    dom.panel.hidden = false;
+    dom.title.textContent = item.title;
+    dom.channel.textContent = item.uploaderName || "";
+    dom.watchLink.href = youtubeWatchUrl(item.id);
+    dom.watchLink.hidden = true;
+
+    ensureUi().title.textContent = item.title;
+    paintControls();
+    showControls();
+    emit("play", item);
+    showLoading(token);
+    wireNative();
+    syncBounds(true);
+
+    if (!nativePlayer() || !window.AyuStreamSelect) {
+      showError("Video playback needs the AyuTube Android app.");
+      return;
+    }
+
+    try {
+      const data = await fetchStreams(item.id);
+
+      if (!isCurrent(token)) return;
+
+      info = data;
+
+      if (item.title === "Untitled video" && data.title) {
+        updateDetails({ title: data.title, uploaderName: data.uploader });
+      }
+
+      prepareStreams();
+      await startNative(activeStart, true, token);
+    } catch (error) {
+      if (!isCurrent(token)) return;
+
+      showError(error.message || "Could not load this video.");
+    }
+  }
+
+  function stopSession() {
+    clearTimeout(startTimer);
+    clearTimeout(hideTimer);
+    closeSheet();
+    hideMessage();
+    hideHint();
+
+    if (fullscreen) void setFullscreen(false);
+
+    const player = nativePlayer();
+
+    if (player) {
+      player.release().catch(() => {});
+      player.setBrightness({ value: -1 }).catch(() => {});
+    }
+
+    root.classList.remove("native-hole");
+    lastBounds = "";
+    lastState = {};
+    info = null;
+  }
+
+  function close() {
+    // Invalidate pending requests and events before cleanup.
+    activeToken += 1;
+    queueHistory(true);
+    activeItem = null;
+    activeMode = "idle";
+    stopSession();
+    pendingHistory = null;
+    dom.panel.hidden = true;
+    dom.title.textContent = "";
+    dom.channel.textContent = "";
+    emit("close");
+  }
+
+  /** Pause without closing (used when the person leaves the watch page). */
+  function pause() {
+    if (!activeItem) return;
+
+    nativePlayer()?.pause().catch(() => {});
+  }
+
+  /** Continue playback after pause(). */
+  function resume() {
+    if (!activeItem) return;
+
+    nativePlayer()?.play().catch(() => {});
+    syncBounds(true);
+  }
+
+  const isActive = () => Boolean(activeItem);
+  const canTrackTime = () => activeMode === "native";
+  const getCurrentTime = () => (Number(lastState.positionMs) || 0) / 1000;
+
+  function seek(seconds) {
+    if (!activeItem) return;
+
+    seekToMs(Math.max(0, Number(seconds) || 0) * 1000);
+  }
+
+  /** Fill in details that were unknown when playback started. */
   function updateDetails(details = {}) {
     if (!activeItem) return;
 
     if (typeof details.title === "string" && details.title.trim()) {
       activeItem.title = details.title.trim().slice(0, 500);
       dom.title.textContent = activeItem.title;
+
+      if (ui) ui.title.textContent = activeItem.title;
     }
 
     if (typeof details.uploaderName === "string") {
@@ -1676,13 +1390,17 @@
       dom.channel.textContent = activeItem.uploaderName;
     }
 
-    if (
-      typeof details.thumbnail === "string" &&
-      details.thumbnail.startsWith("https://")
-    ) {
+    if (typeof details.thumbnail === "string" && details.thumbnail.startsWith("https://")) {
       activeItem.thumbnail = details.thumbnail.slice(0, 2000);
     }
   }
+
+  dom.closeButton.addEventListener("click", close);
+
+  // Leaving the app should save where the person was.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") queueHistory(true);
+  });
 
   window.AyuTubePlayer = Object.freeze({
     play,
@@ -1694,7 +1412,7 @@
     seek,
     setRate,
     getRate: () => activeRate,
-    cleanControlsOn,
+    cleanControlsOn: () => true,
     rates: RATES,
     getCurrentTime,
     canTrackTime,

@@ -214,7 +214,7 @@
     const { setNotice } = UI();
     const text = await window.AyuTubeLocal.exportJson();
     const filename = `ayutube-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    const native = window.Capacitor?.Plugins?.AyuNative;
+    const native = window.AyuNativeBridge?.share;
 
     if (native?.shareFile) {
       await native.shareFile({ filename, text, mimeType: "application/json" });

@@ -148,22 +148,6 @@
       >
         <div class="watch-player">
           <div class="video-frame">
-            <video
-              id="video-player"
-              controls
-              playsinline
-              preload="metadata"
-              hidden
-            ></video>
-
-            <iframe
-              id="youtube-player"
-              title="YouTube video player"
-              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-              allowfullscreen
-              referrerpolicy="strict-origin-when-cross-origin"
-              hidden
-            ></iframe>
 
             <div
               id="player-message"
@@ -175,6 +159,7 @@
           </div>
         </div>
 
+        <div class="watch-body">
         <div class="watch-info">
           <div class="watch-head">
             <h2 id="player-title" class="watch-title"></h2>
@@ -205,6 +190,7 @@
           <h3 class="watch-next-title">Up next</h3>
           <div id="up-next" class="up-next"></div>
         </aside>
+        </div>
       </section>
     </main>
   </div>
@@ -212,7 +198,9 @@
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
   <!-- Load modules in dependency order. app.js goes last. -->
+  <script src="/assets/js/native.js"></script>
   <script src="/assets/js/api.js"></script>
+  <script src="/assets/js/stream-select.js"></script>
   <script src="/assets/js/player.js"></script>
   <script src="/assets/js/categories.js"></script>
   <script src="/assets/js/auth.js"></script>

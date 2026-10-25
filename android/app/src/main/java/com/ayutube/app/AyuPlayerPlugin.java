@@ -28,6 +28,8 @@ import android.view.WindowManager;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
 
+import androidx.activity.ComponentActivity;
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.OptIn;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -89,6 +91,7 @@ public class AyuPlayerPlugin extends Plugin {
     private int videoH;
     private String resizeMode = "fit";
     private boolean backgroundPlay = false;
+    private OnBackPressedCallback backCallback;
 
     private final Runnable ticker = new Runnable() {
         @Override
@@ -161,6 +164,31 @@ public class AyuPlayerPlugin extends Plugin {
 
             if (web.getParent() instanceof View) {
                 ((View) web.getParent()).setBackgroundColor(Color.BLACK);
+            }
+
+            // While fullscreen or a menu is open, the Back button is handed to
+            // the page (as a "ayutubeBack" window event) instead of leaving.
+            if (getActivity() instanceof ComponentActivity) {
+                backCallback = new OnBackPressedCallback(false) {
+                    @Override
+                    public void handleOnBackPressed() {
+                        getBridge().triggerWindowJSEvent("ayutubeBack");
+                    }
+                };
+                ((ComponentActivity) getActivity())
+                        .getOnBackPressedDispatcher()
+                        .addCallback(backCallback);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void setBackIntercept(final PluginCall call) {
+        final boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", false));
+
+        onMain(call, () -> {
+            if (backCallback != null) {
+                backCallback.setEnabled(enabled);
             }
         });
     }
