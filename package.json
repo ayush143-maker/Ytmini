@@ -5,5 +5,19 @@
   "description": "AyuTube - video discovery UI with Vercel serverless API routes and Supabase.",
   "engines": {
     "node": "22.x"
+  },
+  "scripts": {
+    "build:web": "node scripts/build-www.js",
+    "cap:sync": "npm run build:web && cap sync android",
+    "cap:open": "cap open android",
+    "cap:assets": "capacitor-assets generate --android --assetPath resources"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.0.0"
   }
 }
