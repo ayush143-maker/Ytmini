@@ -201,113 +201,272 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Client and current-user handling
+  // On-device store. Everything lives on this phone (IndexedDB, with a
+  // localStorage fallback). There is no account and nothing is sent anywhere.
   // ---------------------------------------------------------------------------
 
-  async function getContext() {
-    if (!window.AyuTubeSupabase?.getClient) {
-      throw new Error(
-        "AyuTube is not initialized yet. Please try again shortly."
-      );
+  const DB_NAME = "ayutube-local";
+  const DB_STORE = "kv";
+  const DB_KEY = "state";
+  const LS_KEY = "ayutube.local.state.v1";
+  const SAVE_DELAY_MS = 250;
+
+  const ERR_DUPLICATE =
+    "This item is already saved, or a matching entry already exists.";
+  const ERR_MISSING =
+    "This library item no longer exists. Refresh and try again.";
+
+  const emptyState = () => ({
+    version: 1,
+    playlists: [],
+    playlist_items: [],
+    watch_later: [],
+    watch_history: [],
+    channel_preferences: [],
+    video_notes: [],
+    video_likes: [],
+    profile: {
+      interests: [],
+      exam_name: null,
+      exam_date: null,
+      onboarded_at: null
+    }
+  });
+
+  const LIST_KEYS = [
+    "playlists",
+    "playlist_items",
+    "watch_later",
+    "watch_history",
+    "channel_preferences",
+    "video_notes",
+    "video_likes"
+  ];
+
+  let data = null;
+  let loading = null;
+  let saveTimer = null;
+  let dirty = false;
+
+  function uuid() {
+    if (typeof crypto?.randomUUID === "function") {
+      return crypto.randomUUID();
     }
 
-    const client = await window.AyuTubeSupabase.getClient();
+    const bytes = new Uint8Array(16);
 
-    if (!client?.auth || !client?.from) {
-      throw new Error("The database client is unavailable.");
+    if (typeof crypto?.getRandomValues === "function") {
+      crypto.getRandomValues(bytes);
+    } else {
+      for (let i = 0; i < 16; i += 1) {
+        bytes[i] = Math.floor(Math.random() * 256);
+      }
     }
 
-    let result;
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
+
+    return (
+      hex.slice(0, 4).join("") + "-" +
+      hex.slice(4, 6).join("") + "-" +
+      hex.slice(6, 8).join("") + "-" +
+      hex.slice(8, 10).join("") + "-" +
+      hex.slice(10, 16).join("")
+    );
+  }
+
+  const nowIso = () => new Date().toISOString();
+  const copy = (value) => JSON.parse(JSON.stringify(value));
+
+  function openDatabase() {
+    return new Promise((resolve, reject) => {
+      if (!window.indexedDB) {
+        reject(new Error("IndexedDB is unavailable."));
+        return;
+      }
+
+      const request = indexedDB.open(DB_NAME, 1);
+
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore(DB_STORE);
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function readPersisted() {
+    try {
+      const db = await openDatabase();
+
+      const value = await new Promise((resolve, reject) => {
+        const request = db
+          .transaction(DB_STORE, "readonly")
+          .objectStore(DB_STORE)
+          .get(DB_KEY);
+
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
+      db.close();
+
+      if (value) {
+        return value;
+      }
+    } catch {
+      // Fall through to localStorage.
+    }
 
     try {
-      result = await client.auth.getUser();
+      const raw = localStorage.getItem(LS_KEY);
+
+      return raw ? JSON.parse(raw) : null;
     } catch {
-      throw new Error(
-        "Unable to verify your account. Check your connection and retry."
-      );
+      return null;
     }
-
-    if (result.error) {
-      throw new Error(
-        "Your session could not be verified. Please sign in again."
-      );
-    }
-
-    const user = result.data?.user;
-
-    if (!user?.id) {
-      throw new Error("Please sign in to use your personal library.");
-    }
-
-    return { client, user };
   }
 
-  function handleDatabaseError(error, fallback) {
-    const code = String(error?.code ?? "");
+  async function writePersisted(snapshot) {
+    try {
+      const db = await openDatabase();
 
-    if (code === "23505") {
-      return new Error(
-        "This item is already saved, or a matching entry already exists."
-      );
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, "readwrite");
+
+        tx.objectStore(DB_STORE).put(snapshot, DB_KEY);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
+
+      db.close();
+      return;
+    } catch {
+      // Fall back to localStorage below.
     }
 
-    if (code === "23503") {
-      return new Error(
-        "This library item no longer exists. Refresh and try again."
-      );
-    }
-
-    if (code === "42501" || code === "PGRST301") {
-      return new Error(
-        "You do not have permission to perform this action."
-      );
-    }
-
-    if (
-      code === "PGRST116" ||
-      code === "PGRST204" ||
-      code === "PGRST205"
-    ) {
-      return new Error(
-        "The requested library data is unavailable. Please retry."
-      );
-    }
-
-    if (
-      code === "57014" ||
-      code === "53300" ||
-      code === "08000" ||
-      code.startsWith("08")
-    ) {
-      return new Error(
-        "The database is temporarily unavailable. Please try again."
-      );
-    }
-
-    // Do not expose raw database details or SQL errors to the UI.
-    return new Error(fallback);
+    localStorage.setItem(LS_KEY, JSON.stringify(snapshot));
   }
 
-  async function execute(query, fallback) {
-    let result;
+  function mergeState(raw) {
+    const base = emptyState();
+
+    if (!raw || typeof raw !== "object") {
+      return base;
+    }
+
+    for (const key of LIST_KEYS) {
+      if (Array.isArray(raw[key])) {
+        base[key] = raw[key].filter(
+          (row) => row && typeof row === "object" && !Array.isArray(row)
+        );
+      }
+    }
+
+    if (raw.profile && typeof raw.profile === "object") {
+      base.profile = { ...base.profile, ...raw.profile };
+    }
+
+    return base;
+  }
+
+  function ready() {
+    loading ||= (async () => {
+      data = mergeState(await readPersisted());
+
+      try {
+        // Ask Android not to evict this data when storage runs low.
+        await navigator.storage?.persist?.();
+      } catch {
+        // Best effort only.
+      }
+
+      return data;
+    })();
+
+    return loading;
+  }
+
+  async function flush() {
+    if (!dirty || !data) {
+      return;
+    }
+
+    dirty = false;
 
     try {
-      result = await query;
-    } catch {
-      throw new Error(
-        "A network error interrupted the request. Please retry."
-      );
+      await writePersisted(copy(data));
+    } catch (error) {
+      dirty = true;
+      console.error("AyuTube could not save local data:", error);
     }
-
-    if (result.error) {
-      throw handleDatabaseError(result.error, fallback);
-    }
-
-    return result.data;
   }
 
-  function normalizeUpdatedAt() {
-    return new Date().toISOString();
+  function scheduleSave() {
+    dirty = true;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flush, SAVE_DELAY_MS);
+  }
+
+  window.addEventListener("pagehide", flush);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      flush();
+    }
+  });
+
+  async function store() {
+    await ready();
+
+    return data;
+  }
+
+  function byDateDesc(field) {
+    return (a, b) => String(b[field] || "").localeCompare(String(a[field] || ""));
+  }
+
+  function pick(row, fields) {
+    const out = {};
+
+    for (const field of fields) {
+      out[field] = row[field] ?? null;
+    }
+
+    return out;
+  }
+
+  const PLAYLIST_FIELDS = [
+    "id", "name", "description", "is_favorite", "created_at", "updated_at"
+  ];
+  const ITEM_FIELDS = [
+    "id", "playlist_id", "video_id", "title", "channel_title",
+    "thumbnail_url", "position", "added_at"
+  ];
+  const LATER_FIELDS = [
+    "id", "video_id", "title", "channel_title", "thumbnail_url", "added_at"
+  ];
+  const HISTORY_FIELDS = [
+    "id", "video_id", "title", "channel_title", "thumbnail_url",
+    "watched_at", "progress_seconds", "duration_seconds"
+  ];
+  const PREF_FIELDS = ["channel_key", "channel_name", "kind", "created_at"];
+  const NOTE_FIELDS = ["id", "video_id", "seconds", "body", "created_at"];
+  const LIKE_FIELDS = [
+    "id", "video_id", "title", "channel_title", "thumbnail_url", "created_at"
+  ];
+
+  function findPlaylist(state, id) {
+    const playlist = state.playlists.find((row) => row.id === id);
+
+    if (!playlist) {
+      throw new Error(ERR_MISSING);
+    }
+
+    return playlist;
   }
 
   // ---------------------------------------------------------------------------
@@ -315,40 +474,32 @@
   // ---------------------------------------------------------------------------
 
   async function getPlaylists() {
-    const { client } = await getContext();
+    const state = await store();
 
-    return execute(
-      client
-        .from(TABLES.playlists)
-        .select(
-          "id, name, description, is_favorite, created_at, updated_at"
-        )
-        .order("created_at", { ascending: false }),
-      "Unable to load your playlists."
-    );
+    return [...state.playlists]
+      .sort(byDateDesc("created_at"))
+      .map((row) => pick(row, PLAYLIST_FIELDS));
   }
 
   async function createPlaylist({ name, description = "" } = {}) {
-    const { client, user } = await getContext();
+    const playlistName = validatePlaylistName(name);
+    const playlistDescription = validateDescription(description);
+    const state = await store();
+    const stamp = nowIso();
 
-    const playlist = {
-      user_id: user.id,
-      name: validatePlaylistName(name),
-      description: validateDescription(description)
+    const row = {
+      id: uuid(),
+      name: playlistName,
+      description: playlistDescription,
+      is_favorite: false,
+      created_at: stamp,
+      updated_at: stamp
     };
 
-    const data = await execute(
-      client
-        .from(TABLES.playlists)
-        .insert(playlist)
-        .select(
-          "id, name, description, is_favorite, created_at, updated_at"
-        )
-        .single(),
-      "Unable to create this playlist."
-    );
+    state.playlists.push(row);
+    scheduleSave();
 
-    return data;
+    return pick(row, PLAYLIST_FIELDS);
   }
 
   async function updatePlaylist(id, changes = {}) {
@@ -372,21 +523,13 @@
       throw new Error("No valid playlist changes were provided.");
     }
 
-    update.updated_at = normalizeUpdatedAt();
+    const state = await store();
+    const row = findPlaylist(state, id);
 
-    const { client } = await getContext();
+    Object.assign(row, update, { updated_at: nowIso() });
+    scheduleSave();
 
-    return execute(
-      client
-        .from(TABLES.playlists)
-        .update(update)
-        .eq("id", id)
-        .select(
-          "id, name, description, is_favorite, created_at, updated_at"
-        )
-        .single(),
-      "Unable to update this playlist."
-    );
+    return pick(row, PLAYLIST_FIELDS);
   }
 
   async function setPlaylistFavorite(id, isFavorite) {
@@ -396,36 +539,26 @@
       throw new Error("Favorite status must be true or false.");
     }
 
-    const { client } = await getContext();
+    const state = await store();
+    const row = findPlaylist(state, id);
 
-    return execute(
-      client
-        .from(TABLES.playlists)
-        .update({
-          is_favorite: isFavorite,
-          updated_at: normalizeUpdatedAt()
-        })
-        .eq("id", id)
-        .select(
-          "id, name, description, is_favorite, created_at, updated_at"
-        )
-        .single(),
-      "Unable to update the playlist's favorite status."
-    );
+    row.is_favorite = isFavorite;
+    row.updated_at = nowIso();
+    scheduleSave();
+
+    return pick(row, PLAYLIST_FIELDS);
   }
 
   async function deletePlaylist(id) {
     validateUuid(id, "Playlist ID");
 
-    const { client } = await getContext();
+    const state = await store();
 
-    await execute(
-      client
-        .from(TABLES.playlists)
-        .delete()
-        .eq("id", id),
-      "Unable to delete this playlist."
+    state.playlists = state.playlists.filter((row) => row.id !== id);
+    state.playlist_items = state.playlist_items.filter(
+      (row) => row.playlist_id !== id
     );
+    scheduleSave();
 
     return { success: true };
   }
@@ -434,63 +567,65 @@
   // Playlist items
   // ---------------------------------------------------------------------------
 
+  function nextPosition(state, playlistId) {
+    let max = -1;
+
+    for (const row of state.playlist_items) {
+      if (row.playlist_id === playlistId && Number.isInteger(row.position)) {
+        max = Math.max(max, row.position);
+      }
+    }
+
+    return max + 1;
+  }
+
   async function getPlaylistItems(playlistId, options = {}) {
     validateUuid(playlistId, "Playlist ID");
 
-    const { client } = await getContext();
     const { limit, offset } = validatePage(options);
+    const state = await store();
 
-    return execute(
-      client
-        .from(TABLES.playlistItems)
-        .select(
-          "id, playlist_id, video_id, title, channel_title, thumbnail_url, position, added_at",
-          { count: "exact" }
-        )
-        .eq("playlist_id", playlistId)
-        .order("position", { ascending: true })
-        .order("added_at", { ascending: true })
-        .range(offset, offset + limit - 1),
-      "Unable to load this playlist's videos."
-    ).then((data) => data);
+    return state.playlist_items
+      .filter((row) => row.playlist_id === playlistId)
+      .sort(
+        (a, b) =>
+          (a.position ?? 0) - (b.position ?? 0) ||
+          String(a.added_at).localeCompare(String(b.added_at))
+      )
+      .slice(offset, offset + limit)
+      .map((row) => pick(row, ITEM_FIELDS));
   }
 
   async function addToPlaylist(playlistId, video) {
     validateUuid(playlistId, "Playlist ID");
 
     const normalized = normalizeVideo(video);
-    const { client } = await getContext();
+    const state = await store();
 
-    // The RLS policy verifies ownership of the parent playlist.
-    const latestItem = await execute(
-      client
-        .from(TABLES.playlistItems)
-        .select("position")
-        .eq("playlist_id", playlistId)
-        .order("position", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      "Unable to prepare this playlist."
-    );
+    findPlaylist(state, playlistId);
 
-    const position = Number.isInteger(latestItem?.position)
-      ? latestItem.position + 1
-      : 0;
+    if (
+      state.playlist_items.some(
+        (row) =>
+          row.playlist_id === playlistId &&
+          row.video_id === normalized.video_id
+      )
+    ) {
+      throw new Error(ERR_DUPLICATE);
+    }
 
-    return execute(
-      client
-        .from(TABLES.playlistItems)
-        .insert({
-          playlist_id: playlistId,
-          ...normalized,
-          position
-        })
-        .select(
-          "id, playlist_id, video_id, title, channel_title, thumbnail_url, position, added_at"
-        )
-        .single(),
-      "Unable to add this video to the playlist."
-    );
+    const row = {
+      id: uuid(),
+      playlist_id: playlistId,
+      ...normalized,
+      position: nextPosition(state, playlistId),
+      added_at: nowIso()
+    };
+
+    state.playlist_items.push(row);
+    scheduleSave();
+
+    return pick(row, ITEM_FIELDS);
   }
 
   /**
@@ -508,23 +643,18 @@
       throw new Error("That is too many videos to add at once.");
     }
 
-    const { client } = await getContext();
+    const state = await store();
 
-    const latest = await execute(
-      client
-        .from(TABLES.playlistItems)
-        .select("position")
-        .eq("playlist_id", playlistId)
-        .order("position", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      "Unable to prepare this playlist."
+    findPlaylist(state, playlistId);
+
+    const existing = new Set(
+      state.playlist_items
+        .filter((row) => row.playlist_id === playlistId)
+        .map((row) => row.video_id)
     );
 
-    let position = Number.isInteger(latest?.position) ? latest.position + 1 : 0;
-
-    const seen = new Set();
-    const rows = [];
+    let position = nextPosition(state, playlistId);
+    let added = 0;
 
     for (const video of videos) {
       let normalized;
@@ -535,43 +665,39 @@
         continue; // skip entries that cannot be stored
       }
 
-      if (seen.has(normalized.video_id)) continue;
+      if (existing.has(normalized.video_id)) {
+        continue;
+      }
 
-      seen.add(normalized.video_id);
-      rows.push({
+      existing.add(normalized.video_id);
+
+      state.playlist_items.push({
+        id: uuid(),
         playlist_id: playlistId,
         ...normalized,
-        position: position++
+        position: position++,
+        added_at: nowIso()
       });
+
+      added += 1;
     }
 
-    for (let offset = 0; offset < rows.length; offset += 100) {
-      await execute(
-        client
-          .from(TABLES.playlistItems)
-          .upsert(rows.slice(offset, offset + 100), {
-            onConflict: "playlist_id,video_id",
-            ignoreDuplicates: true
-          }),
-        "Unable to add these videos to the playlist."
-      );
+    if (added) {
+      scheduleSave();
     }
 
-    return { added: rows.length };
+    return { added };
   }
 
   async function removeFromPlaylist(itemId) {
     validateUuid(itemId, "Playlist item ID");
 
-    const { client } = await getContext();
+    const state = await store();
 
-    await execute(
-      client
-        .from(TABLES.playlistItems)
-        .delete()
-        .eq("id", itemId),
-      "Unable to remove this video from the playlist."
+    state.playlist_items = state.playlist_items.filter(
+      (row) => row.id !== itemId
     );
+    scheduleSave();
 
     return { success: true };
   }
@@ -583,19 +709,17 @@
       throw new Error("Position must be a non-negative whole number.");
     }
 
-    const { client } = await getContext();
+    const state = await store();
+    const row = state.playlist_items.find((entry) => entry.id === itemId);
 
-    return execute(
-      client
-        .from(TABLES.playlistItems)
-        .update({ position })
-        .eq("id", itemId)
-        .select(
-          "id, playlist_id, video_id, title, channel_title, thumbnail_url, position, added_at"
-        )
-        .single(),
-      "Unable to reorder this playlist item."
-    );
+    if (!row) {
+      throw new Error(ERR_MISSING);
+    }
+
+    row.position = position;
+    scheduleSave();
+
+    return pick(row, ITEM_FIELDS);
   }
 
   // ---------------------------------------------------------------------------
@@ -603,52 +727,37 @@
   // ---------------------------------------------------------------------------
 
   async function getWatchLater(options = {}) {
-    const { client } = await getContext();
     const { limit, offset } = validatePage(options);
+    const state = await store();
 
-    return execute(
-      client
-        .from(TABLES.watchLater)
-        .select(
-          "id, video_id, title, channel_title, thumbnail_url, added_at",
-          { count: "exact" }
-        )
-        .order("added_at", { ascending: false })
-        .range(offset, offset + limit - 1),
-      "Unable to load Watch Later."
-    );
+    return [...state.watch_later]
+      .sort(byDateDesc("added_at"))
+      .slice(offset, offset + limit)
+      .map((row) => pick(row, LATER_FIELDS));
   }
 
   async function addToWatchLater(video) {
-    const { client, user } = await getContext();
     const normalized = normalizeVideo(video);
+    const state = await store();
 
-    return execute(
-      client
-        .from(TABLES.watchLater)
-        .insert({
-          user_id: user.id,
-          ...normalized
-        })
-        .select(
-          "id, video_id, title, channel_title, thumbnail_url, added_at"
-        )
-        .single(),
-      "Unable to save this video to Watch Later."
-    );
+    if (state.watch_later.some((row) => row.video_id === normalized.video_id)) {
+      throw new Error(ERR_DUPLICATE);
+    }
+
+    const row = { id: uuid(), ...normalized, added_at: nowIso() };
+
+    state.watch_later.push(row);
+    scheduleSave();
+
+    return pick(row, LATER_FIELDS);
   }
 
   async function removeFromWatchLater(videoId) {
     const id = validateVideoId(videoId);
-    const { client } = await getContext();
+    const state = await store();
 
-    await execute(
-      client
-        .from(TABLES.watchLater)
-        .delete()
-        .eq("video_id", id),
-      "Unable to remove this video from Watch Later."
-    );
+    state.watch_later = state.watch_later.filter((row) => row.video_id !== id);
+    scheduleSave();
 
     return { success: true };
   }
@@ -658,20 +767,13 @@
   // ---------------------------------------------------------------------------
 
   async function getHistory(options = {}) {
-    const { client } = await getContext();
     const { limit, offset } = validatePage(options);
+    const state = await store();
 
-    return execute(
-      client
-        .from(TABLES.history)
-        .select(
-          "id, video_id, title, channel_title, thumbnail_url, watched_at, progress_seconds, duration_seconds",
-          { count: "exact" }
-        )
-        .order("watched_at", { ascending: false })
-        .range(offset, offset + limit - 1),
-      "Unable to load your watch history."
-    );
+    return [...state.watch_history]
+      .sort(byDateDesc("watched_at"))
+      .slice(offset, offset + limit)
+      .map((row) => pick(row, HISTORY_FIELDS));
   }
 
   /**
@@ -679,7 +781,6 @@
    * Call when playback starts and periodically as progress changes.
    */
   async function saveHistoryEntry(video, progress = {}) {
-    const { client, user } = await getContext();
     const normalized = normalizeVideo(video);
     const playback = normalizeProgress(progress);
 
@@ -692,52 +793,40 @@
       );
     }
 
-    const row = {
-      user_id: user.id,
-      ...normalized,
-      ...playback,
-      watched_at: normalizeUpdatedAt()
-    };
-
-    return execute(
-      client
-        .from(TABLES.history)
-        .upsert(row, {
-          onConflict: "user_id,video_id"
-        })
-        .select(
-          "id, video_id, title, channel_title, thumbnail_url, watched_at, progress_seconds, duration_seconds"
-        )
-        .single(),
-      "Unable to save your watch progress."
+    const state = await store();
+    let row = state.watch_history.find(
+      (entry) => entry.video_id === normalized.video_id
     );
+
+    if (row) {
+      Object.assign(row, normalized, playback, { watched_at: nowIso() });
+    } else {
+      row = { id: uuid(), ...normalized, ...playback, watched_at: nowIso() };
+      state.watch_history.push(row);
+    }
+
+    scheduleSave();
+
+    return pick(row, HISTORY_FIELDS);
   }
 
   async function removeHistoryEntry(videoId) {
     const id = validateVideoId(videoId);
-    const { client } = await getContext();
+    const state = await store();
 
-    await execute(
-      client
-        .from(TABLES.history)
-        .delete()
-        .eq("video_id", id),
-      "Unable to remove this video from your history."
+    state.watch_history = state.watch_history.filter(
+      (row) => row.video_id !== id
     );
+    scheduleSave();
 
     return { success: true };
   }
 
   async function clearHistory() {
-    const { client } = await getContext();
+    const state = await store();
 
-    await execute(
-      client
-        .from(TABLES.history)
-        .delete()
-        .neq("video_id", ""),
-      "Unable to clear your watch history."
-    );
+    state.watch_history = [];
+    scheduleSave();
 
     return { success: true };
   }
@@ -751,24 +840,10 @@
    * completed once at least 90% of it has been watched.
    */
   async function getPlaylistProgress() {
-    const { client } = await getContext();
-
-    const [items, history] = await Promise.all([
-      execute(
-        client.from(TABLES.playlistItems).select("playlist_id, video_id"),
-        "Unable to load playlist progress."
-      ),
-      execute(
-        client
-          .from(TABLES.history)
-          .select("video_id, progress_seconds, duration_seconds"),
-        "Unable to load playlist progress."
-      )
-    ]);
-
+    const state = await store();
     const finished = new Set();
 
-    for (const row of history || []) {
+    for (const row of state.watch_history) {
       const duration = Number(row.duration_seconds) || 0;
       const progress = Number(row.progress_seconds) || 0;
 
@@ -779,11 +854,14 @@
 
     const result = {};
 
-    for (const item of items || []) {
+    for (const item of state.playlist_items) {
       const entry = (result[item.playlist_id] ||= { total: 0, completed: 0 });
 
       entry.total += 1;
-      if (finished.has(item.video_id)) entry.completed += 1;
+
+      if (finished.has(item.video_id)) {
+        entry.completed += 1;
+      }
     }
 
     return result;
@@ -796,15 +874,11 @@
   const CHANNEL_KINDS = new Set(["follow", "block"]);
 
   async function getChannelPrefs() {
-    const { client } = await getContext();
+    const state = await store();
 
-    return execute(
-      client
-        .from(TABLES.channelPrefs)
-        .select("channel_key, channel_name, kind, created_at")
-        .order("created_at", { ascending: false }),
-      "Unable to load your channels."
-    );
+    return [...state.channel_preferences]
+      .sort(byDateDesc("created_at"))
+      .map((row) => pick(row, PREF_FIELDS));
   }
 
   async function setChannelPref({ channel_key, channel_name, kind } = {}) {
@@ -815,29 +889,32 @@
       throw new Error("Choose follow or block.");
     }
 
-    const { client, user } = await getContext();
-
-    return execute(
-      client
-        .from(TABLES.channelPrefs)
-        .upsert(
-          { user_id: user.id, channel_key: key, channel_name: name, kind },
-          { onConflict: "user_id,channel_key" }
-        )
-        .select("channel_key, channel_name, kind, created_at")
-        .single(),
-      "Unable to save this channel."
+    const state = await store();
+    let row = state.channel_preferences.find(
+      (entry) => entry.channel_key === key
     );
+
+    if (row) {
+      row.channel_name = name;
+      row.kind = kind;
+    } else {
+      row = { channel_key: key, channel_name: name, kind, created_at: nowIso() };
+      state.channel_preferences.push(row);
+    }
+
+    scheduleSave();
+
+    return pick(row, PREF_FIELDS);
   }
 
   async function removeChannelPref(channelKey) {
     const key = requireString(channelKey, "Channel").slice(0, 200);
-    const { client } = await getContext();
+    const state = await store();
 
-    await execute(
-      client.from(TABLES.channelPrefs).delete().eq("channel_key", key),
-      "Unable to update this channel."
+    state.channel_preferences = state.channel_preferences.filter(
+      (row) => row.channel_key !== key
     );
+    scheduleSave();
 
     return { success: true };
   }
@@ -851,17 +928,16 @@
 
   async function getNotes(videoId) {
     const id = validateVideoId(videoId);
-    const { client } = await getContext();
+    const state = await store();
 
-    return execute(
-      client
-        .from(TABLES.notes)
-        .select("id, video_id, seconds, body, created_at")
-        .eq("video_id", id)
-        .order("seconds", { ascending: true })
-        .order("created_at", { ascending: true }),
-      "Unable to load your notes."
-    );
+    return state.video_notes
+      .filter((row) => row.video_id === id)
+      .sort(
+        (a, b) =>
+          (a.seconds ?? 0) - (b.seconds ?? 0) ||
+          String(a.created_at).localeCompare(String(b.created_at))
+      )
+      .map((row) => pick(row, NOTE_FIELDS));
   }
 
   async function addNote({ video_id, seconds = 0, body } = {}) {
@@ -878,26 +954,28 @@
       throw new Error("That note time is not valid.");
     }
 
-    const { client, user } = await getContext();
+    const state = await store();
+    const row = {
+      id: uuid(),
+      video_id: id,
+      seconds: at,
+      body: text,
+      created_at: nowIso()
+    };
 
-    return execute(
-      client
-        .from(TABLES.notes)
-        .insert({ user_id: user.id, video_id: id, seconds: at, body: text })
-        .select("id, video_id, seconds, body, created_at")
-        .single(),
-      "Unable to save this note."
-    );
+    state.video_notes.push(row);
+    scheduleSave();
+
+    return pick(row, NOTE_FIELDS);
   }
 
   async function deleteNote(noteId) {
-    const id = validateUuid(noteId, "Note");
-    const { client } = await getContext();
+    validateUuid(noteId, "Note");
 
-    await execute(
-      client.from(TABLES.notes).delete().eq("id", id),
-      "Unable to delete this note."
-    );
+    const state = await store();
+
+    state.video_notes = state.video_notes.filter((row) => row.id !== noteId);
+    scheduleSave();
 
     return { success: true };
   }
@@ -906,29 +984,23 @@
   // Profile: interests, exam date, first-run state
   // ---------------------------------------------------------------------------
 
-  const PROFILE_COLUMNS = "interests, exam_name, exam_date, onboarded_at";
   const INTEREST_PATTERN = /^[a-z0-9-]{1,40}$/;
   const MAX_INTERESTS = 5;
   const MAX_EXAM_NAME = 60;
 
-  async function getProfile() {
-    const { client, user } = await getContext();
-
-    const row = await execute(
-      client
-        .from(TABLES.profiles)
-        .select(PROFILE_COLUMNS)
-        .eq("id", user.id)
-        .maybeSingle(),
-      "Unable to load your profile."
-    );
-
+  function profileShape(profile) {
     return {
-      interests: Array.isArray(row?.interests) ? row.interests : [],
-      exam_name: row?.exam_name ?? null,
-      exam_date: row?.exam_date ?? null,
-      onboarded_at: row?.onboarded_at ?? null
+      interests: Array.isArray(profile?.interests) ? [...profile.interests] : [],
+      exam_name: profile?.exam_name ?? null,
+      exam_date: profile?.exam_date ?? null,
+      onboarded_at: profile?.onboarded_at ?? null
     };
+  }
+
+  async function getProfile() {
+    const state = await store();
+
+    return profileShape(state.profile);
   }
 
   function validDate(value) {
@@ -946,8 +1018,7 @@
    * first-run choices were made (or skipped).
    */
   async function saveProfile({ interests, exam_name, exam_date, onboarded } = {}) {
-    const { client, user } = await getContext();
-    const payload = { id: user.id, updated_at: new Date().toISOString() };
+    const payload = {};
 
     if (interests !== undefined) {
       if (!Array.isArray(interests)) {
@@ -960,7 +1031,11 @@
         throw new Error(`Choose up to ${MAX_INTERESTS} interests.`);
       }
 
-      if (!unique.every((item) => typeof item === "string" && INTEREST_PATTERN.test(item))) {
+      if (
+        !unique.every(
+          (item) => typeof item === "string" && INTEREST_PATTERN.test(item)
+        )
+      ) {
         throw new Error("One of the interests is not valid.");
       }
 
@@ -971,7 +1046,9 @@
       const name = typeof exam_name === "string" ? exam_name.trim() : "";
 
       if (name.length > MAX_EXAM_NAME) {
-        throw new Error(`Exam names can be up to ${MAX_EXAM_NAME} characters.`);
+        throw new Error(
+          `Exam names can be up to ${MAX_EXAM_NAME} characters.`
+        );
       }
 
       payload.exam_name = name || null;
@@ -986,17 +1063,15 @@
     }
 
     if (onboarded === true) {
-      payload.onboarded_at = new Date().toISOString();
+      payload.onboarded_at = nowIso();
     }
 
-    return execute(
-      client
-        .from(TABLES.profiles)
-        .upsert(payload, { onConflict: "id" })
-        .select(PROFILE_COLUMNS)
-        .single(),
-      "Unable to save your preferences."
-    );
+    const state = await store();
+
+    state.profile = { ...state.profile, ...payload };
+    scheduleSave();
+
+    return profileShape(state.profile);
   }
 
   // ---------------------------------------------------------------------------
@@ -1004,46 +1079,133 @@
   // ---------------------------------------------------------------------------
 
   async function getLikes({ limit = 300 } = {}) {
-    const { client } = await getContext();
     const count = Math.min(Math.max(Math.floor(Number(limit)) || 300, 1), 1000);
+    const state = await store();
 
-    return execute(
-      client
-        .from(TABLES.likes)
-        .select("id, video_id, title, channel_title, thumbnail_url, created_at")
-        .order("created_at", { ascending: false })
-        .limit(count),
-      "Unable to load your liked videos."
-    );
+    return [...state.video_likes]
+      .sort(byDateDesc("created_at"))
+      .slice(0, count)
+      .map((row) => pick(row, LIKE_FIELDS));
   }
 
   async function likeVideo(video) {
-    const { client, user } = await getContext();
     const normalized = normalizeVideo(video);
-
-    return execute(
-      client
-        .from(TABLES.likes)
-        .upsert(
-          { user_id: user.id, ...normalized },
-          { onConflict: "user_id,video_id" }
-        )
-        .select("id, video_id, title, channel_title, thumbnail_url, created_at")
-        .single(),
-      "Unable to like this video."
+    const state = await store();
+    let row = state.video_likes.find(
+      (entry) => entry.video_id === normalized.video_id
     );
+
+    if (row) {
+      Object.assign(row, normalized);
+    } else {
+      row = { id: uuid(), ...normalized, created_at: nowIso() };
+      state.video_likes.push(row);
+    }
+
+    scheduleSave();
+
+    return pick(row, LIKE_FIELDS);
   }
 
   async function unlikeVideo(videoId) {
     const id = validateVideoId(videoId);
-    const { client } = await getContext();
+    const state = await store();
 
-    await execute(
-      client.from(TABLES.likes).delete().eq("video_id", id),
-      "Unable to remove this like."
-    );
+    state.video_likes = state.video_likes.filter((row) => row.video_id !== id);
+    scheduleSave();
 
     return { success: true };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Backup: export, import, erase
+  // ---------------------------------------------------------------------------
+
+  const MERGE_KEYS = {
+    playlists: (row) => row.id,
+    playlist_items: (row) => `${row.playlist_id}:${row.video_id}`,
+    watch_later: (row) => row.video_id,
+    watch_history: (row) => row.video_id,
+    channel_preferences: (row) => row.channel_key,
+    video_notes: (row) => row.id,
+    video_likes: (row) => row.video_id
+  };
+
+  async function exportJson() {
+    const state = await store();
+
+    return JSON.stringify(
+      { app: "ayutube", exported_at: nowIso(), ...copy(state) },
+      null,
+      2
+    );
+  }
+
+  /** Adds anything not already stored. Returns how many records were added. */
+  async function importJson(text) {
+    let parsed;
+
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw new Error("That file is not a valid AyuTube backup.");
+    }
+
+    if (!parsed || typeof parsed !== "object" || parsed.app !== "ayutube") {
+      throw new Error("That file is not a valid AyuTube backup.");
+    }
+
+    const incoming = mergeState(parsed);
+    const state = await store();
+    let added = 0;
+
+    for (const key of LIST_KEYS) {
+      const keyOf = MERGE_KEYS[key];
+      const seen = new Set(state[key].map(keyOf));
+
+      for (const row of incoming[key]) {
+        const id = keyOf(row);
+
+        if (id && !seen.has(id)) {
+          seen.add(id);
+          state[key].push(row);
+          added += 1;
+        }
+      }
+    }
+
+    const profile = incoming.profile;
+
+    if (!state.profile.onboarded_at && profile.onboarded_at) {
+      state.profile = { ...state.profile, ...profile };
+    }
+
+    scheduleSave();
+
+    return { added };
+  }
+
+  async function eraseAll() {
+    await store();
+
+    data = emptyState();
+    scheduleSave();
+    await flush();
+
+    return { success: true };
+  }
+
+  async function stats() {
+    const state = await store();
+
+    return {
+      playlists: state.playlists.length,
+      history: state.watch_history.length,
+      watchLater: state.watch_later.length,
+      likes: state.video_likes.length,
+      following: state.channel_preferences.filter((row) => row.kind === "follow")
+        .length
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -1056,37 +1218,36 @@
     updatePlaylist,
     setPlaylistFavorite,
     deletePlaylist,
-
     getPlaylistItems,
     addToPlaylist,
     addManyToPlaylist,
     removeFromPlaylist,
     reorderPlaylistItem,
-
     getWatchLater,
     addToWatchLater,
     removeFromWatchLater,
-
     getHistory,
     saveHistoryEntry,
     removeHistoryEntry,
     clearHistory,
-
     getPlaylistProgress,
-
     getChannelPrefs,
     setChannelPref,
     removeChannelPref,
-
     getNotes,
     addNote,
     deleteNote,
-
     getProfile,
     saveProfile,
-
     getLikes,
     likeVideo,
     unlikeVideo
+  });
+
+  window.AyuTubeLocal = Object.freeze({
+    exportJson,
+    importJson,
+    eraseAll,
+    stats
   });
 })();

@@ -3,7 +3,6 @@
 
   const MODULES = Object.freeze({
     categories: "/assets/js/categories.js",
-    supabase: "/assets/js/supabase.js",
     auth: "/assets/js/auth.js",
     library: "/assets/js/library.js",
     api: "/assets/js/api.js"
@@ -229,7 +228,6 @@
   }
 
   async function ensureAuthModules() {
-    if (!window.AyuTubeSupabase) await loadScript(MODULES.supabase);
     if (!window.AyuTubeAuth) await loadScript(MODULES.auth);
     if (!window.AyuTubeLibrary) await loadScript(MODULES.library);
 
@@ -267,7 +265,7 @@
 
   let personalReady = false;
 
-  const isKnownGuest = () => store.get(SIGNED_IN_KEY, false) !== true;
+  const isKnownGuest = () => false;
 
   function interestsNow() {
     if (personalReady) return personalData.profile.interests || [];

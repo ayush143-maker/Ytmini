@@ -197,200 +197,166 @@
     container.append(panel);
   }
 
-  function renderForm(container, notice = "", hooks = {}) {
-    const { element, makeButton, setNotice, state, ensureAuthModules } = UI();
+  function downloadText(filename, text) {
+    const blob = new Blob([text], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
 
-    container.replaceChildren();
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
 
-    const isSignup = state.authMode === "signup";
-    const form = element("form", "ay-form");
+  async function exportBackup(container) {
+    const { setNotice } = UI();
+    const text = await window.AyuTubeLocal.exportJson();
+    const filename = `ayutube-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    const native = window.Capacitor?.Plugins?.AyuNative;
 
-    if (notice) setNotice(container, notice, "info");
-
-    form.append(
-      element("h2", "ay-section-heading", isSignup ? "Create your account" : "Sign in")
-    );
-
-    if (isSignup) {
-      const nameLabel = element("label", "ay-field", "Display name");
-      const nameInput = element("input");
-
-      nameInput.name = "displayName";
-      nameInput.type = "text";
-      nameInput.autocomplete = "name";
-      nameInput.maxLength = 80;
-      nameInput.placeholder = "Your name";
-
-      nameLabel.append(nameInput);
-      form.append(nameLabel);
+    if (native?.shareFile) {
+      await native.shareFile({ filename, text, mimeType: "application/json" });
+    } else {
+      downloadText(filename, text);
     }
 
-    const emailLabel = element("label", "ay-field", "Email address");
-    const emailInput = element("input");
+    setNotice(container, "Backup ready.");
+  }
 
-    emailInput.type = "email";
-    emailInput.name = "email";
-    emailInput.required = true;
-    emailInput.autocomplete = "email";
-    emailInput.maxLength = 254;
-    emailInput.placeholder = "you@example.com";
-    if (hooks.email) emailInput.value = hooks.email;
-    emailLabel.append(emailInput);
+  function pickBackupFile(container, reload) {
+    const { setNotice } = UI();
+    const input = document.createElement("input");
 
-    const passwordLabel = element("label", "ay-field", "Password");
-    const passwordInput = element("input");
+    input.type = "file";
+    input.accept = "application/json,.json";
 
-    passwordInput.type = "password";
-    passwordInput.name = "password";
-    passwordInput.required = true;
-    passwordInput.autocomplete = isSignup ? "new-password" : "current-password";
-    passwordInput.minLength = isSignup ? 8 : 1;
-    passwordInput.maxLength = 128;
-    passwordInput.placeholder = isSignup ? "At least 8 characters" : "Your password";
-    passwordLabel.append(passwordInput);
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
 
-    const submit = element(
-      "button",
-      "ay-action ay-action-primary",
-      isSignup ? "Create account" : "Sign in"
-    );
-    submit.type = "submit";
-
-    const switchMode = makeButton(
-      isSignup ? "I already have an account" : "Create a new account",
-      "ay-action",
-      () => {
-        state.authMode = isSignup ? "signin" : "signup";
-
-        if (hooks.rerender) hooks.rerender();
-        else render();
-      }
-    );
-
-    const actions = element("div", "ay-inline");
-    actions.style.marginTop = "4px";
-    actions.append(submit, switchMode);
-
-    form.append(emailLabel, passwordLabel, actions);
-
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      submit.disabled = true;
-      container.querySelector(".ay-notice")?.remove();
+      if (!file) return;
 
       try {
-        await ensureAuthModules();
+        const result = await window.AyuTubeLocal.importJson(await file.text());
 
-        let result;
-
-        if (isSignup) {
-          result = await window.AyuTubeAuth.signUp({
-            email: emailInput.value,
-            password: passwordInput.value,
-            displayName: form.elements.displayName?.value
-          });
-
-          if (result.needsEmailConfirmation) {
-            const sentTo = emailInput.value.trim();
-
-            state.authMode = "signin";
-            renderForm(container, `Confirmation mail sent to ${sentTo}.`, {
-              ...hooks,
-              email: sentTo
-            });
-            return;
-          }
-        } else {
-          result = await window.AyuTubeAuth.signIn({
-            email: emailInput.value,
-            password: passwordInput.value
-          });
-        }
-
-        state.user = result.user || null;
-
-        if (hooks.onSignedIn) {
-          await hooks.onSignedIn(result.user);
-        } else {
-          await UI().afterSignIn();
-          render();
-        }
+        await reload();
+        setNotice(container, `Imported ${result.added} items.`);
       } catch (error) {
-        setNotice(
-          container,
-          error.message || "Something went wrong. Try again.",
-          "error"
-        );
-      } finally {
-        submit.disabled = false;
+        setNotice(container, error.message || "Could not import that file.", "error");
       }
     });
 
-    container.append(form);
+    input.click();
+  }
+
+  async function renderData(container) {
+    const { element, makeButton, setNotice } = UI();
+    const stats = await window.AyuTubeLocal.stats();
+    const panel = element("section", "ay-panel");
+
+    panel.append(
+      element("h2", "ay-panel-title", "Your data"),
+      element(
+        "p",
+        "ay-panel-copy",
+        "Stored only on this phone. There is no account and nothing is synced."
+      ),
+      element(
+        "p",
+        "ay-panel-copy",
+        `${stats.history} watched · ${stats.playlists} playlists · ` +
+          `${stats.watchLater} watch later · ${stats.likes} liked · ` +
+          `${stats.following} following`
+      )
+    );
+
+    const actions = element("div", "ay-inline");
+    const reload = async () => {
+      await UI().afterSignIn();
+      await render();
+    };
+
+    actions.append(
+      makeButton("Export backup", "ay-action ay-action-primary", async () => {
+        try {
+          await exportBackup(container);
+        } catch (error) {
+          setNotice(container, error.message || "Could not export.", "error");
+        }
+      }),
+      makeButton("Import backup", "ay-action", () => {
+        pickBackupFile(container, reload);
+      }),
+      makeButton("Erase all data", "ay-action ay-action-danger", async () => {
+        if (!window.confirm("Erase your history, playlists, likes and settings from this phone?")) {
+          return;
+        }
+
+        try {
+          await window.AyuTubeLocal.eraseAll();
+          await UI().afterSignOut();
+          await render();
+        } catch (error) {
+          setNotice(container, error.message || "Could not erase data.", "error");
+        }
+      })
+    );
+
+    panel.append(actions);
+    container.append(panel);
+  }
+
+  function renderAbout(container) {
+    const { element } = UI();
+    const panel = element("section", "ay-panel");
+    const link = element("a", "ay-link", "Source code on GitHub");
+
+    link.href = "https://github.com/ayush143-maker/Ytmini";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+
+    panel.append(
+      element("h2", "ay-panel-title", "About"),
+      element(
+        "p",
+        "ay-panel-copy",
+        "AyuTube is free software under the GNU GPL v3, modelled on LibreTube and powered by NewPipeExtractor."
+      ),
+      link
+    );
+    container.append(panel);
   }
 
   async function render() {
-    const { element, makeButton, setNotice, state, ensureAuthModules, setView } = UI();
+    const { setNotice, state, ensureAuthModules } = UI();
     const container = document.getElementById("ayutube-account-content");
 
     if (!container) return;
 
     container.replaceChildren();
-    setNotice(container, "Loading your account…");
+    setNotice(container, "Loading…");
 
     try {
       await ensureAuthModules();
-
-      const user = await window.AyuTubeAuth.getCurrentUser();
-      state.user = user;
+      state.user = await window.AyuTubeAuth.getCurrentUser();
 
       container.replaceChildren();
 
-      if (!user) {
-        renderForm(container);
-        renderPreferences(container);
-        return;
-      }
-
-      const panel = element("section", "ay-panel");
-      panel.append(
-        element("h2", "ay-panel-title", "Signed in"),
-        element("p", "ay-panel-copy", user.email || "")
-      );
-
-      const actions = element("div", "ay-inline");
-
-      actions.append(
-        makeButton("Open library", "ay-action ay-action-primary", () => {
-          setView("library");
-        }),
-        makeButton("Sign out", "ay-action ay-action-danger", async () => {
-          try {
-            await window.AyuTubeAuth.signOut();
-            state.user = null;
-            await UI().afterSignOut();
-            render();
-          } catch (error) {
-            setNotice(container, error.message || "Could not sign out.", "error");
-          }
-        })
-      );
-
-      panel.append(actions);
-      container.append(panel);
+      await renderData(container);
       renderPreferences(container);
       await renderInterests(container);
       await renderExam(container);
+      renderAbout(container);
     } catch {
       container.replaceChildren();
-
-      renderForm(
+      setNotice(
         container,
-        "Accounts are not connected yet."
+        "Your local data could not be opened. Close and reopen the app.",
+        "error"
       );
-      renderPreferences(container);
     }
   }
 
-  window.AyuTubeAccountUI = Object.freeze({ render, renderForm });
+  window.AyuTubeAccountUI = Object.freeze({ render });
 })();

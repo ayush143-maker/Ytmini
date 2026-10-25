@@ -818,13 +818,6 @@
   }
 
   async function ensureLibrary() {
-    if (!window.AyuTubeSupabase?.getClient) {
-      await loadModuleScript(
-        MODULE_PATHS.supabase,
-        () => Boolean(window.AyuTubeSupabase?.getClient)
-      );
-    }
-
     if (!window.AyuTubeAuth?.getCurrentUser) {
       await loadModuleScript(
         MODULE_PATHS.auth,
