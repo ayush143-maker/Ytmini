@@ -77,3 +77,17 @@ npm run cap:open     # opens the project in Android Studio, then Run
 - Launcher icon and splash are generated from `resources/` (`npm run cap:assets`).
   Regenerate the source PNGs with `python3 scripts/make_icons.py` (needs Pillow).
 - `www/` is a build output and is git-ignored.
+
+## License
+
+AyuTube is free software, licensed under the **GNU General Public License v3.0**
+(see [`LICENSE`](LICENSE)). You may use, study, share and modify it under those terms;
+anything you distribute that is based on it must also be GPL-3.0 and ship its source.
+
+### Credits
+
+The Android app is modelled on [LibreTube](https://github.com/libre-tube/LibreTube)
+(GPL-3.0): its player behaviour, controls and local-first data model. Video data comes from
+[NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor) (GPL-3.0).
+Playback uses [AndroidX Media3 / ExoPlayer](https://github.com/androidx/media) (Apache-2.0).
+Optional services: [SponsorBlock](https://sponsor.ajay.app/) (CC BY-NC-SA 4.0 data).

@@ -19,5 +19,6 @@
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^7.0.0"
-  }
+  },
+  "license": "GPL-3.0-only"
 }
