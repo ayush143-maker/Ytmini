@@ -58,3 +58,22 @@ Never put a secret or `service_role` key in the frontend or in `SUPABASE_PUBLISH
 - Search, the feed and direct playback depend on third-party Piped instances. When direct playback fails, the YouTube embed is used. If every instance fails, search and the feed show an error; set `PIPED_INSTANCES` to instances you have verified.
 - The YouTube embed keeps its own controls, branding and quality menu. The embed must stay at least 200 x 200 px and nothing may cover it, so there is no floating mini-player; leaving the watch page pauses the video and shows a "Paused" strip.
 - Shared links look like `/?v=VIDEO_ID` (optionally `&t=SECONDS`).
+
+## Android app (Capacitor)
+
+The same static frontend is wrapped as an Android app with [Capacitor](https://capacitorjs.com).
+The web deployment on Vercel is unchanged; the app only adds `assets/js/native.js`,
+which sends relative `/api/*` calls to `https://ayutube.vercel.app` when running inside the app.
+
+Requirements: Node 22, Android Studio (JDK 17+).
+
+```bash
+npm install
+npm run cap:sync     # copies index.html + assets/ into www/ and syncs android/
+npm run cap:open     # opens the project in Android Studio, then Run
+```
+
+- App id: `com.ayutube.app` (`capacitor.config.json`)
+- Launcher icon and splash are generated from `resources/` (`npm run cap:assets`).
+  Regenerate the source PNGs with `python3 scripts/make_icons.py` (needs Pillow).
+- `www/` is a build output and is git-ignored.
