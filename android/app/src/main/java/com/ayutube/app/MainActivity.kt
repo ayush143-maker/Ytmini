@@ -50,6 +50,8 @@ class MainActivity : AppCompatActivity() {
     private var resultsHost: LinearLayout? = null
     private var searchStatus: TextView? = null
     private var currentSearchQuery = ""
+    private var searchMode = "Videos"
+    private var selectedCatalogUrl = ""
     private var nextSearchPage: Page? = null
     private var searchEpoch = 0
     private var watchEpoch = 0
@@ -126,6 +128,8 @@ class MainActivity : AppCompatActivity() {
             "Home" -> homeScreen()
             "Search" -> searchScreen()
             "Watch" -> activeVideo?.let { watchScreen(it) } ?: placeholder("Watch", "No video selected.", "Select a video from search.")
+            "Channel" -> if (selectedCatalogUrl.isNotBlank()) channelScreen(selectedCatalogUrl) else placeholder("Channel", "No channel selected.", "Search for a channel first.")
+            "Playlist" -> if (selectedCatalogUrl.isNotBlank()) playlistScreen(selectedCatalogUrl) else placeholder("Playlist", "No playlist selected.", "Search for a playlist first.")
             "Library" -> libraryScreen()
             "Study" -> studyScreen()
             else -> placeholder("AyuTube", "No account. No cloud profile.", "Native Kotlin build · data stored on this device.")
@@ -165,24 +169,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun searchScreen(): View = page { content ->
         content.addView(label("Search", 27f, paper, true))
-        content.addView(label("Results are extracted on-device through NewPipeExtractor.", 12f, muted, false).apply {
-            setPadding(0, dp(6), 0, dp(18))
-        })
+        content.addView(label("On-device extraction · no content backend", 12f, muted, false).apply { setPadding(0, dp(6), 0, dp(16)) })
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val input = EditText(this).apply {
-            hint = "Search videos"
-            setHintTextColor(muted)
-            setTextColor(paper)
-            textSize = 14f
-            isSingleLine = true
+            hint = "Search YouTube"
+            setHintTextColor(muted); setTextColor(paper); textSize = 14f; isSingleLine = true
             imeOptions = EditorInfo.IME_ACTION_SEARCH
-            setPadding(dp(13), dp(11), dp(13), dp(11))
-            background = rounded(panel2, 11)
+            setPadding(dp(13), dp(11), dp(13), dp(11)); background = rounded(panel2, 11)
             setOnEditorActionListener { _, action, _ ->
-                if (action == EditorInfo.IME_ACTION_SEARCH) {
-                    performSearch(text.toString(), false)
-                    true
-                } else false
+                if (action == EditorInfo.IME_ACTION_SEARCH) { performSearch(text.toString(), false); true } else false
             }
         }
         searchInput = input
@@ -190,15 +185,36 @@ class MainActivity : AppCompatActivity() {
         row.addView(pill("Go", accent, ink) { performSearch(input.text.toString(), false) },
             LinearLayout.LayoutParams(dp(66), dp(48)).apply { leftMargin = dp(8) })
         content.addView(row)
-        searchStatus = label("Search directly; results will appear here.", 12f, muted, false).apply {
-            setPadding(0, dp(16), 0, dp(8))
+        val modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        listOf("Videos", "Channels", "Playlists").forEach { mode ->
+            modes.addView(pill(mode, if (searchMode == mode) accent else panel2,
+                if (searchMode == mode) ink else paper) { changeSearchMode(mode) },
+                LinearLayout.LayoutParams(0, dp(40), 1f).apply { if (mode != "Videos") leftMargin = dp(6) })
         }
+        content.addView(modes, LinearLayout.LayoutParams(-1, dp(40)).apply { topMargin = dp(12) })
+        searchStatus = label("Search videos, channels or playlists.", 12f, muted, false).apply { setPadding(0, dp(15), 0, dp(8)) }
         content.addView(searchStatus)
         resultsHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(resultsHost)
     }
 
+    private fun changeSearchMode(mode: String) {
+        if (searchMode == mode) return
+        searchMode = mode
+        searchEpoch++
+        loadingSearch = false
+        nextSearchPage = null
+        resultsHost?.removeAllViews()
+        val query = searchInput?.text?.toString().orEmpty()
+        // Recreate the chip states while retaining the user's current query.
+        val queryToKeep = query
+        showScreen("Search")
+        searchInput?.setText(queryToKeep)
+        if (queryToKeep.isNotBlank()) performSearch(queryToKeep, false)
+    }
+
     private fun searchFor(query: String) {
+        searchMode = "Videos"
         showScreen("Search")
         searchInput?.setText(query)
         performSearch(query, false)
@@ -209,6 +225,7 @@ class MainActivity : AppCompatActivity() {
         val query = raw.trim()
         if (query.isEmpty()) { status("Enter a search query."); return }
         if (query.length > 200) { status("Search is limited to 200 characters."); return }
+        if (searchMode != "Videos") { performCatalogSearch(query); return }
         val token = ++searchEpoch
         val page = if (append) nextSearchPage else null
         if (append && page == null) return
@@ -248,6 +265,115 @@ class MainActivity : AppCompatActivity() {
                         performSearch(currentSearchQuery, false)
                     })
                 }
+            }
+        }
+    }
+
+    private fun performCatalogSearch(query: String) {
+        val token = ++searchEpoch
+        currentSearchQuery = query
+        nextSearchPage = null
+        loadingSearch = true
+        resultsHost?.removeAllViews()
+        status("Searching YouTube ${searchMode.lowercase()}…")
+        val mode = searchMode
+        io.execute {
+            try {
+                if (mode == "Channels") {
+                    val items = NewPipeRepository.searchChannels(query)
+                    main.post {
+                        if (token != searchEpoch || currentScreen != "Search" || searchMode != mode) return@post
+                        loadingSearch = false
+                        status("${items.size} channels found")
+                        if (items.isEmpty()) resultsHost?.addView(card("No channels found", "Try another query."))
+                        items.forEach { item -> resultsHost?.addView(catalogRow(item.title, "${if (item.verified) "Verified · " else ""}${item.subscribers.takeIf { it >= 0 }?.let { compactCount(it) + " subscribers" } ?: "Channel"}", item.thumbnailUrl) { openChannel(item.url) }) }
+                    }
+                } else {
+                    val items = NewPipeRepository.searchPlaylists(query)
+                    main.post {
+                        if (token != searchEpoch || currentScreen != "Search" || searchMode != mode) return@post
+                        loadingSearch = false
+                        status("${items.size} playlists found")
+                        if (items.isEmpty()) resultsHost?.addView(card("No playlists found", "Try another query."))
+                        items.forEach { item -> resultsHost?.addView(catalogRow(item.title, "${item.uploader.ifBlank { "YouTube" }} · ${item.videoCount.takeIf { it >= 0 }?.let { "$it videos" } ?: "Playlist"}", item.thumbnailUrl) { openPlaylist(item.url) }) }
+                    }
+                }
+            } catch (error: Throwable) {
+                main.post {
+                    if (token != searchEpoch || currentScreen != "Search" || searchMode != mode) return@post
+                    loadingSearch = false
+                    status("Search failed: ${error.message?.take(140) ?: "Extractor error"}")
+                    resultsHost?.addView(pill("Retry", panel2, paper) { performSearch(currentSearchQuery, false) })
+                }
+            }
+        }
+    }
+
+    private fun compactCount(value: Long): String = when {
+        value >= 1_000_000_000 -> "%.1fB".format(value / 1_000_000_000.0)
+        value >= 1_000_000 -> "%.1fM".format(value / 1_000_000.0)
+        value >= 1_000 -> "%.1fK".format(value / 1_000.0)
+        else -> value.toString()
+    }
+
+    private fun catalogRow(title: String, subtitle: String, imageUrl: String, onClick: () -> Unit): View =
+        actionRow(title, subtitle.ifBlank { imageUrl.take(100) }, onClick)
+
+    private fun openChannel(url: String) {
+        selectedCatalogUrl = url
+        showScreen("Channel")
+    }
+
+    private fun openPlaylist(url: String) {
+        selectedCatalogUrl = url
+        showScreen("Playlist")
+    }
+
+    private fun channelScreen(url: String): View = page { content ->
+        content.addView(pill("← Back to search", panel2, paper) { showScreen("Search") }.apply {
+            layoutParams = LinearLayout.LayoutParams(-1, dp(42))
+        })
+        val heading = label("Loading channel…", 22f, paper, true).apply { setPadding(0, dp(15), 0, dp(6)) }
+        val statusView = label("Fetching channel information and latest videos.", 12f, muted, false)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(heading); content.addView(statusView); content.addView(list)
+        io.execute {
+            try {
+                val details = NewPipeRepository.channelDetails(url)
+                main.post {
+                    if (currentScreen != "Channel" || selectedCatalogUrl != url) return@post
+                    heading.text = details.channel.title
+                    statusView.text = "${details.channel.subscribers.takeIf { it >= 0 }?.let { compactCount(it) + " subscribers" } ?: "YouTube channel"}${if (details.channel.verified) " · Verified" else ""}"
+                    if (details.channel.description.isNotBlank()) list.addView(label(details.channel.description.take(1800), 12f, muted, false).apply { setPadding(0, dp(12), 0, dp(14)) })
+                    if (details.videos.isEmpty()) list.addView(card("No videos available", "The channel loaded but did not expose a video tab."))
+                    details.videos.forEach { list.addView(videoRow(it)) }
+                }
+            } catch (error: Throwable) {
+                main.post { if (currentScreen == "Channel" && selectedCatalogUrl == url) statusView.text = "Channel load failed: ${error.message?.take(140) ?: "Extractor error"}" }
+            }
+        }
+    }
+
+    private fun playlistScreen(url: String): View = page { content ->
+        content.addView(pill("← Back to search", panel2, paper) { showScreen("Search") }.apply {
+            layoutParams = LinearLayout.LayoutParams(-1, dp(42))
+        })
+        val heading = label("Loading playlist…", 22f, paper, true).apply { setPadding(0, dp(15), 0, dp(6)) }
+        val statusView = label("Fetching playlist items.", 12f, muted, false)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(heading); content.addView(statusView); content.addView(list)
+        io.execute {
+            try {
+                val details = NewPipeRepository.playlistDetails(url)
+                main.post {
+                    if (currentScreen != "Playlist" || selectedCatalogUrl != url) return@post
+                    heading.text = details.playlist.title
+                    statusView.text = "${details.playlist.uploader.ifBlank { "YouTube playlist" }} · ${details.playlist.videoCount.takeIf { it >= 0 }?.let { "$it videos" } ?: "Playlist"}"
+                    if (details.videos.isEmpty()) list.addView(card("Playlist is empty", "No video items were returned."))
+                    details.videos.forEach { list.addView(videoRow(it)) }
+                }
+            } catch (error: Throwable) {
+                main.post { if (currentScreen == "Playlist" && selectedCatalogUrl == url) statusView.text = "Playlist load failed: ${error.message?.take(140) ?: "Extractor error"}" }
             }
         }
     }
