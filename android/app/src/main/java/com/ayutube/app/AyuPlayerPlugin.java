@@ -523,6 +523,31 @@ public class AyuPlayerPlugin extends Plugin {
         });
     }
 
+    /**
+     * above=false: video sits behind the transparent WebView (watch page, the
+     * page leaves a hole for it). above=true: video sits on top of the WebView
+     * (mini player). It ignores touches, so taps still reach the page.
+     */
+    @PluginMethod
+    public void setLayer(final PluginCall call) {
+        final boolean above = Boolean.TRUE.equals(call.getBoolean("above", false));
+
+        onMain(call, () -> {
+            if (container == null || !(container.getParent() instanceof ViewGroup)) {
+                return;
+            }
+
+            final ViewGroup parent = (ViewGroup) container.getParent();
+            final ViewGroup.LayoutParams params = container.getLayoutParams();
+
+            parent.removeView(container);
+            parent.addView(container, above ? parent.getChildCount() : 0, params);
+            container.setClickable(false);
+            container.setFocusable(false);
+            applyLayout();
+        });
+    }
+
     @PluginMethod
     public void setResizeMode(final PluginCall call) {
         final String mode = call.getString("mode", "fit");

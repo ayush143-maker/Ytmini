@@ -2846,3 +2846,83 @@ html.pl-fs-active .pl-sheet {
     border-radius: 0;
   }
 }
+
+/* 32. Mini player ----------------------------------------------------------- */
+
+.now-playing {
+  gap: 8px;
+  min-height: 80px;
+  padding: 8px 4px 8px 8px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.mini-video {
+  flex: none;
+  width: 112px;
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  background: #000;
+}
+
+.mini-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.mini-title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.mini-channel {
+  overflow: hidden;
+  color: var(--fog);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-btn {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--paper);
+}
+
+.mini-btn svg {
+  width: 26px;
+  height: 26px;
+}
+
+.mini-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--steel);
+}
+
+.mini-progress i {
+  display: block;
+  height: 100%;
+  background: var(--pink);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+body.has-now-playing .stage {
+  padding-bottom: calc(var(--tabbar-h) + 104px);
+}

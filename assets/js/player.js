@@ -49,7 +49,13 @@
   }
 
   // Tiny event emitter so the page can react to playback without polling.
-  const listeners = { play: new Set(), close: new Set(), ended: new Set(), state: new Set() };
+  const listeners = {
+    play: new Set(),
+    close: new Set(),
+    ended: new Set(),
+    state: new Set(),
+    time: new Set()
+  };
 
   function emit(name, payload) {
     for (const handler of listeners[name] || []) {
@@ -316,6 +322,8 @@
       "M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.5.5 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.5.5 0 0 0-.59.22L2.74 8.87a.5.5 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.5.5 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.49-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.5.5 0 0 0-.12-.61l-2.01-1.58zM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z",
     fullscreen: "M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z",
     fullscreenExit: "M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z",
+    close:
+      "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
     arrowLeft: "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
     check: "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
     chevron: "M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z",
@@ -914,18 +922,35 @@
   // ----- native video area ------------------------------------------------------
 
   let lastBounds = "";
+  let lastLayerAbove = false;
+
+  function miniTarget() {
+    const box = document.getElementById("now-playing");
+    const node = box?.querySelector(".mini-video");
+
+    return box && !box.hidden && node && node.getClientRects().length ? node : null;
+  }
 
   function syncBounds(force = false) {
     const player = bridge()?.player;
 
     if (!player) return;
 
-    const visible = activeMode !== "idle" && !dom.panel.hidden;
+    const watchVisible = activeMode !== "idle" && !dom.panel.hidden;
+    const mini = !watchVisible && activeMode !== "idle" ? miniTarget() : null;
+    const target = watchVisible ? dom.frame : mini;
+    const above = Boolean(mini);
 
-    root.classList.toggle("native-hole", visible);
+    root.classList.toggle("native-hole", watchVisible);
 
-    const rect = dom.frame.getBoundingClientRect();
-    const usable = visible && rect.width > 0 && rect.height > 0;
+    if (above !== lastLayerAbove) {
+      lastLayerAbove = above;
+      force = true;
+      player.setLayer({ above }).catch(() => {});
+    }
+
+    const rect = target ? target.getBoundingClientRect() : null;
+    const usable = Boolean(rect && rect.width > 0 && rect.height > 0);
     const key = usable
       ? [rect.left, rect.top, rect.width, rect.height].map(Math.round).join(",")
       : "off";
@@ -1176,6 +1201,10 @@
     if (gate && (lastState.state === "ready" || lastState.playing)) finishLoading();
 
     paintControls();
+    emit("time", {
+      position: (Number(lastState.positionMs) || 0) / 1000,
+      duration: (Number(lastState.durationMs) || 0) / 1000
+    });
 
     if (Boolean(lastState.playing) !== wasPlaying) {
       emit("state", lastState.playing ? "playing" : "paused");
@@ -1331,6 +1360,7 @@
 
     root.classList.remove("native-hole");
     lastBounds = "";
+    lastLayerAbove = false;
     lastState = {};
     info = null;
   }
@@ -1365,6 +1395,22 @@
   }
 
   const isActive = () => Boolean(activeItem);
+  const isPlaying = () => Boolean(lastState.playing);
+
+  /** Called by the page when the watch view is shown or left. */
+  function setMini(on) {
+    if (!activeItem) return;
+
+    if (on) {
+      hideHint();
+      closeSheet();
+      if (fullscreen) void setFullscreen(false);
+    }
+
+    for (const delay of [0, 80, 300]) {
+      setTimeout(() => syncBounds(true), delay);
+    }
+  }
   const canTrackTime = () => activeMode === "native";
   const getCurrentTime = () => (Number(lastState.positionMs) || 0) / 1000;
 
@@ -1409,6 +1455,10 @@
     resume,
     updateDetails,
     isActive,
+    isPlaying,
+    toggle: togglePlay,
+    setMini,
+    icon,
     seek,
     setRate,
     getRate: () => activeRate,

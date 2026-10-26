@@ -661,8 +661,10 @@
 
     // The watch page left the screen: stop playback instead of letting audio
     // continue in a hidden player.
-    if (wasWatching && !watching) {
-      getPlayer()?.pause?.();
+    // Leaving the watch page keeps the video playing in the mini player;
+    // coming back puts it in the page again.
+    if (wasWatching !== watching) {
+      getPlayer()?.setMini?.(!watching);
     }
 
     wasWatching = watching;
@@ -973,56 +975,87 @@
   // Now playing strip (replaces any floating mini-player)
   // ---------------------------------------------------------------------------
 
+  function paintMini() {
+    const box = $("#now-playing");
+    const player = getPlayer();
+    const toggle = box?.querySelector(".mini-btn[data-role=toggle]");
+
+    if (!toggle || !player) return;
+
+    const playing = Boolean(player.isPlaying?.());
+
+    toggle.replaceChildren(player.icon(playing ? "pause" : "play"));
+    toggle.setAttribute("aria-label", playing ? "Pause" : "Play");
+  }
+
+  function paintMiniTime({ position, duration } = {}) {
+    const fill = document.querySelector("#now-playing .mini-progress i");
+
+    if (fill && duration > 0) {
+      fill.style.transform = `scaleX(${Math.min(1, Math.max(0, position / duration))})`;
+    }
+  }
+
   function updateNowPlaying() {
     const box = $("#now-playing");
     if (!box) return;
-
     const player = getPlayer();
     const current = window.AyuTubeWatch?.current?.();
-
     const show = Boolean(
       player?.isActive?.() &&
         current &&
         !(state.view === "explore" && state.pane === "watch")
     );
-
     document.body.classList.toggle("has-now-playing", show);
     box.hidden = !show;
-
     if (!show) {
       box.replaceChildren();
+      box.onclick = null;
       delete box.dataset.id;
       return;
     }
-
-    if (box.dataset.id === current.id) return;
-
+    if (box.dataset.id === current.id) {
+      paintMini();
+      return;
+    }
     box.dataset.id = current.id;
     box.replaceChildren();
 
-    const title = element("div", "now-playing-title");
-    title.append(
-      element("small", "", "Paused"),
-      document.createTextNode(current.title || "Video")
+    // YouTube-style mini player: the video is drawn by the app over .mini-video.
+    const info = element("div", "mini-info");
+    info.append(
+      element("div", "mini-title", current.title || "Video"),
+      element("div", "mini-channel", current.uploaderName || "")
     );
 
-    const resume = makeButton("Resume", "ay-action ay-action-primary", () => {
-      state.view = "explore";
-      state.pane = "watch";
-
-      showWatch(current, { push: true });
-      getPlayer()?.resume?.();
+    const toggle = element("button", "mini-btn");
+    toggle.type = "button";
+    toggle.dataset.role = "toggle";
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      getPlayer()?.toggle?.();
     });
 
-    const close = makeButton("Close", "ay-action", () => {
+    const close = element("button", "mini-btn");
+    close.type = "button";
+    close.setAttribute("aria-label", "Close player");
+    close.append(player.icon("close"));
+    close.addEventListener("click", (event) => {
+      event.stopPropagation();
       getPlayer()?.close?.();
     });
 
-    const actions = element("div", "ay-inline");
-    actions.style.marginTop = "0";
-    actions.append(resume, close);
+    const progress = element("div", "mini-progress");
+    progress.append(element("i"));
 
-    box.append(title, actions);
+    box.append(element("div", "mini-video"), info, toggle, close, progress);
+    box.onclick = () => {
+      state.view = "explore";
+      state.pane = "watch";
+      showWatch(current, { push: true });
+      getPlayer()?.resume?.();
+    };
+    paintMini();
   }
 
   // ---------------------------------------------------------------------------
@@ -2012,6 +2045,8 @@
     const player = getPlayer();
 
     player?.on?.("play", updateNowPlaying);
+    player?.on?.("state", paintMini);
+    player?.on?.("time", paintMiniTime);
     player?.on?.("close", () => {
       if (state.pane === "watch") {
         leaveWatch();
