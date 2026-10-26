@@ -10,6 +10,13 @@ import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+import org.schabi.newpipe.extractor.channel.ChannelInfo
+import org.schabi.newpipe.extractor.channel.ChannelInfoItem
+import org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo
+import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
+import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
+import org.schabi.newpipe.extractor.playlist.PlaylistInfo
+import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.search.SearchInfo
@@ -30,6 +37,18 @@ object NewPipeRepository {
         val videoUrl: String?,
         val audioUrl: String?
     )
+
+    data class ChannelItem(
+        val url: String, val title: String, val thumbnailUrl: String,
+        val description: String = "", val subscribers: Long = -1L,
+        val videoCount: Long = -1L, val verified: Boolean = false
+    )
+    data class PlaylistItem(
+        val url: String, val title: String, val thumbnailUrl: String,
+        val uploader: String = "", val videoCount: Long = -1L
+    )
+    data class ChannelDetails(val channel: ChannelItem, val videos: List<VideoItem>)
+    data class PlaylistDetails(val playlist: PlaylistItem, val videos: List<VideoItem>)
 
     private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
     private val client = OkHttpClient.Builder()
@@ -126,6 +145,67 @@ object NewPipeRepository {
             audioUrl = audioStream?.content
         )
     }
+
+
+    fun searchChannels(query: String): List<ChannelItem> {
+        require(query.isNotBlank()) { "Enter a search query." }
+        initialize()
+        val service = ServiceList.YouTube
+        val handler = service.searchQHFactory.fromQuery(query.trim().take(200), Collections.singletonList("channels"), "")
+        val info = SearchInfo.getInfo(service, handler)
+        return info.relatedItems.orEmpty().filterIsInstance<ChannelInfoItem>().mapNotNull { item ->
+            val url = item.url ?: return@mapNotNull null
+            if (!safeYouTubeUrl(url)) return@mapNotNull null
+            ChannelItem(url, (item.name ?: "Untitled channel").take(300), bestImage(item.thumbnails),
+                item.description ?: "", item.subscriberCount, item.streamCount, item.isVerified)
+        }
+    }
+
+    fun searchPlaylists(query: String): List<PlaylistItem> {
+        require(query.isNotBlank()) { "Enter a search query." }
+        initialize()
+        val service = ServiceList.YouTube
+        val handler = service.searchQHFactory.fromQuery(query.trim().take(200), Collections.singletonList("playlists"), "")
+        val info = SearchInfo.getInfo(service, handler)
+        return info.relatedItems.orEmpty().filterIsInstance<PlaylistInfoItem>().mapNotNull { item ->
+            val url = item.url ?: return@mapNotNull null
+            if (!safeYouTubeUrl(url)) return@mapNotNull null
+            PlaylistItem(url, (item.name ?: "Untitled playlist").take(300), bestImage(item.thumbnails),
+                item.uploaderName ?: "", item.streamCount)
+        }
+    }
+
+    fun channelDetails(rawUrl: String): ChannelDetails {
+        require(safeYouTubeUrl(rawUrl) && (rawUrl.contains("/channel/") || rawUrl.contains("/@"))) {
+            "Unsupported channel URL. Choose a channel from YouTube search."
+        }
+        initialize()
+        val info = ChannelInfo.getInfo(rawUrl)
+        val channelUrl = info.url ?: rawUrl
+        val channel = ChannelItem(channelUrl, (info.name ?: "Channel").take(300), bestImage(info.avatars),
+            info.description ?: "", info.subscriberCount, -1L, info.isVerified)
+        val tab = info.tabs.orEmpty().firstOrNull { it.contentFilters.orEmpty().contains(ChannelTabs.VIDEOS) }
+        val videos = if (tab == null) emptyList() else {
+            ChannelTabInfo.getInfo(ServiceList.YouTube, tab).relatedItems.orEmpty()
+                .filterIsInstance<StreamInfoItem>().mapNotNull(::mapItem)
+        }
+        return ChannelDetails(channel, videos)
+    }
+
+    fun playlistDetails(rawUrl: String): PlaylistDetails {
+        require(safeYouTubeUrl(rawUrl) && rawUrl.contains("list=")) { "Unsupported playlist URL." }
+        initialize()
+        val info = PlaylistInfo.getInfo(ServiceList.YouTube, rawUrl)
+        val playlist = PlaylistItem(info.url ?: rawUrl, (info.name ?: "Playlist").take(300), bestImage(info.thumbnails),
+            info.uploaderName ?: "", info.streamCount)
+        val videos = info.relatedItems.orEmpty().filterIsInstance<StreamInfoItem>().mapNotNull(::mapItem)
+        return PlaylistDetails(playlist, videos)
+    }
+
+    private fun safeYouTubeUrl(url: String): Boolean = try {
+        val uri = java.net.URI(url)
+        uri.scheme == "https" && (uri.host == "youtube.com" || uri.host == "www.youtube.com" || uri.host == "m.youtube.com") && url.length <= 2000
+    } catch (_: Throwable) { false }
 
     private fun safeMediaUrl(value: String?): Boolean = try {
         value != null && value.length <= 2000 && value.startsWith("https://")
