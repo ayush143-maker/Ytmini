@@ -499,6 +499,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun playlistScreen(url: String): View = page { content ->
+        playlistFirstVideo = null
         content.addView(pill("← Back to results", panel2, paper) { showScreen("Search") }.apply {
             layoutParams = LinearLayout.LayoutParams(-1, dp(40))
         })
@@ -511,9 +512,12 @@ class MainActivity : AppCompatActivity() {
         val title = label("Loading playlist…", 20f, paper, true).apply { setPadding(0, dp(12), 0, dp(5)) }
         val subtitle = label("Fetching playlist items", 11f, muted, false)
         hero.addView(title); hero.addView(subtitle)
-        hero.addView(pill("Play first video", accent, Color.BLACK) {
-            playlistFirstVideo?.let { openVideo(it) }
-        }.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(42)).apply { topMargin = dp(12) } })
+        val playFirstButton = pill("Loading playlist…", panel2, paper) {
+            playlistFirstVideo?.let { openVideo(it) } ?: Toast.makeText(this@MainActivity, "No video available yet", Toast.LENGTH_SHORT).show()
+        }
+        playFirstButton.isEnabled = false
+        playFirstButton.alpha = 0.7f
+        hero.addView(playFirstButton.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(42)).apply { topMargin = dp(12) } })
         content.addView(hero)
         content.addView(label("Playlist videos", 18f, paper, true).apply { setPadding(0, dp(22), 0, dp(9)) })
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -527,6 +531,9 @@ class MainActivity : AppCompatActivity() {
                     subtitle.text = "${details.playlist.uploader.ifBlank { "YouTube playlist" }} · ${details.playlist.videoCount.takeIf { it >= 0 }?.let { "$it videos" } ?: "Playlist"}"
                     loadThumbnail(thumb, details.playlist.thumbnailUrl, null)
                     playlistFirstVideo = details.videos.firstOrNull()
+                    playFirstButton.isEnabled = playlistFirstVideo != null
+                    playFirstButton.alpha = if (playlistFirstVideo != null) 1f else 0.65f
+                    playFirstButton.text = if (playlistFirstVideo != null) "▶  Play first video" else "No videos available"
                     if (details.videos.isEmpty()) list.addView(card("Playlist is empty", "No video items were returned."))
                     details.videos.forEach { list.addView(videoRow(it)) }
                 }
@@ -745,12 +752,15 @@ class MainActivity : AppCompatActivity() {
         content.addView(ownerRow)
 
         val actionRow1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val likedButton = pill(if (library.isLiked(video.id)) "♥  Liked" else "♡  Like", panel2, paper) {
+        var likedButton: TextView? = null
+        val likeAction: () -> Unit = {
             val liked = library.toggleLike(activeVideo ?: video)
-            this.text = if (liked) "♥  Liked" else "♡  Like"
+            likedButton?.text = if (liked) "♥  Liked" else "♡  Like"
             Toast.makeText(this@MainActivity, if (liked) "Added to liked videos" else "Removed from liked videos", Toast.LENGTH_SHORT).show()
         }
-        actionRow1.addView(likedButton, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(5) })
+        val button = pill(if (library.isLiked(video.id)) "♥  Liked" else "♡  Like", panel2, paper, likeAction)
+        likedButton = button
+        actionRow1.addView(button, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(5) })
         actionRow1.addView(pill("＋  Watch later", panel2, paper) {
             val added = library.addWatchLater(activeVideo ?: video)
             Toast.makeText(this@MainActivity, if (added) "Saved to Watch Later" else "Already saved", Toast.LENGTH_SHORT).show()
