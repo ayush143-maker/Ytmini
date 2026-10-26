@@ -1,6 +1,7 @@
 package com.ayutube.app
 
 import android.app.AlertDialog
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
@@ -494,6 +495,12 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this@MainActivity, if (added) "Saved to Watch later" else "Already in Watch later", Toast.LENGTH_SHORT).show()
         }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(5) })
         content.addView(actions)
+        val extras = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        extras.addView(pill("＋ Add to playlist", panel2, paper) { choosePlaylist(video) },
+            LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(5); topMargin = dp(8) })
+        extras.addView(pill("Video note", panel2, paper) { editVideoNote(video) },
+            LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(5); topMargin = dp(8) })
+        content.addView(extras)
         content.addView(label("About this video", 15f, paper, true).apply {
             setPadding(0, dp(22), 0, dp(8))
         })
@@ -511,20 +518,39 @@ class MainActivity : AppCompatActivity() {
 
     private fun libraryScreen(): View = page { content ->
         content.addView(label("Your library", 27f, paper, true))
-        content.addView(label("Saved locally on this device", 12f, muted, false).apply {
-            setPadding(0, dp(5), 0, dp(16))
+        content.addView(label("Saved locally on this device", 12f, muted, false).apply { setPadding(0, dp(5), 0, dp(16)) })
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        controls.addView(pill("＋ New playlist", accent, ink) { createPlaylistDialog() },
+            LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(5) })
+        controls.addView(pill("Export backup", panel2, paper) { shareLibraryBackup() },
+            LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(5) })
+        content.addView(controls)
+        content.addView(pill("Import JSON backup", panel2, paper) { importLibraryBackupDialog() }.apply {
+            layoutParams = LinearLayout.LayoutParams(-1, dp(42)).apply { topMargin = dp(7) }
         })
         listOf("History" to library.history(), "Liked videos" to library.likes(), "Watch later" to library.watchLater()).forEach { pair ->
-            content.addView(label(pair.first, 17f, paper, true).apply {
-                setPadding(0, dp(14), 0, dp(8))
-            })
+            content.addView(label(pair.first, 17f, paper, true).apply { setPadding(0, dp(18), 0, dp(8)) })
             if (pair.second.isEmpty()) {
-                content.addView(label("Nothing here yet", 12f, muted, false).apply {
-                    setPadding(dp(6), dp(8), 0, dp(8))
-                })
+                content.addView(label("Nothing here yet", 12f, muted, false).apply { setPadding(dp(6), dp(8), 0, dp(8)) })
             } else {
                 pair.second.take(12).forEach { content.addView(videoRow(it)) }
             }
+        }
+        content.addView(label("Your playlists", 18f, paper, true).apply { setPadding(0, dp(18), 0, dp(8)) })
+        val custom = library.playlists()
+        if (custom.isEmpty()) content.addView(label("Create a playlist from this screen or save a video to one from Watch.", 12f, muted, false))
+        custom.forEach { playlist ->
+            content.addView(label(playlist.name + " · " + playlist.videos.size + " videos", 14f, paper, true).apply {
+                setPadding(dp(4), dp(12), 0, dp(8))
+            })
+            playlist.videos.take(8).forEach { content.addView(videoRow(it)) }
+            content.addView(pill("Delete playlist", panel2, muted) {
+                AlertDialog.Builder(this).setTitle("Delete ${playlist.name}?")
+                    .setMessage("Only this local playlist will be removed.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Delete") { _, _ -> library.deletePlaylist(playlist.id); showScreen("Library") }
+                    .show()
+            }.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(38)).apply { topMargin = dp(3) } })
         }
         content.addView(pill("Clear watch history", panel2, paper) {
             AlertDialog.Builder(this).setTitle("Clear history?")
@@ -532,7 +558,79 @@ class MainActivity : AppCompatActivity() {
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Clear") { _, _ -> library.clearHistory(); showScreen("Library") }
                 .show()
-        }.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(12) } })
+        }.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(18) } })
+    }
+
+    private fun createPlaylistDialog() {
+        val field = EditText(this).apply {
+            hint = "Playlist name"; setTextColor(paper); setHintTextColor(muted); isSingleLine = true
+            setPadding(dp(12), dp(10), dp(12), dp(10)); background = rounded(panel2, 10)
+        }
+        val wrapper = LinearLayout(this).apply { setPadding(dp(20), dp(10), dp(20), 0); addView(field) }
+        AlertDialog.Builder(this).setTitle("Create local playlist").setView(wrapper)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Create") { _, _ ->
+                val id = library.createPlaylist(field.text.toString())
+                Toast.makeText(this, if (id != null) "Playlist created" else "Enter a name (max 100 playlists)", Toast.LENGTH_SHORT).show()
+                showScreen("Library")
+            }.show()
+    }
+
+    private fun choosePlaylist(video: VideoItem) {
+        val items = library.playlists()
+        if (items.isEmpty()) {
+            AlertDialog.Builder(this).setTitle("No playlists yet")
+                .setMessage("Create a local playlist first?")
+                .setNegativeButton("Not now", null)
+                .setPositiveButton("Create") { _, _ -> createPlaylistDialog() }.show()
+            return
+        }
+        AlertDialog.Builder(this).setTitle("Add to playlist")
+            .setItems(items.map { it.name }.toTypedArray()) { _, index ->
+                val success = library.addToPlaylist(items[index].id, activeVideo ?: video)
+                Toast.makeText(this, if (success) "Added to ${items[index].name}" else "Already saved or playlist full", Toast.LENGTH_SHORT).show()
+            }.show()
+    }
+
+    private fun editVideoNote(video: VideoItem) {
+        val field = EditText(this).apply {
+            hint = "Write a note about this video"; setTextColor(paper); setHintTextColor(muted)
+            setText(library.note(video.id)); minLines = 4; gravity = Gravity.TOP
+            setPadding(dp(12), dp(10), dp(12), dp(10)); background = rounded(panel2, 10)
+        }
+        val wrapper = LinearLayout(this).apply { setPadding(dp(20), dp(6), dp(20), 0); addView(field) }
+        AlertDialog.Builder(this).setTitle("Video note · max 5,000 characters").setView(wrapper)
+            .setNegativeButton("Cancel", null)
+            .setNeutralButton("Delete") { _, _ -> library.saveNote(video.id, ""); Toast.makeText(this, "Note deleted", Toast.LENGTH_SHORT).show() }
+            .setPositiveButton("Save") { _, _ -> library.saveNote(video.id, field.text.toString()); Toast.makeText(this, "Note saved locally", Toast.LENGTH_SHORT).show() }
+            .show()
+    }
+
+    private fun shareLibraryBackup() {
+        val backup = library.exportBackup()
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/json"
+            putExtra(Intent.EXTRA_SUBJECT, "AyuTube local library backup")
+            putExtra(Intent.EXTRA_TEXT, backup)
+        }
+        startActivity(Intent.createChooser(intent, "Export AyuTube backup"))
+    }
+
+    private fun importLibraryBackupDialog() {
+        val field = EditText(this).apply {
+            hint = "Paste the complete AyuTube backup JSON"; setTextColor(paper); setHintTextColor(muted)
+            minLines = 6; maxLines = 12; gravity = Gravity.TOP
+            setPadding(dp(12), dp(10), dp(12), dp(10)); background = rounded(panel2, 10)
+        }
+        val wrapper = LinearLayout(this).apply { setPadding(dp(20), dp(6), dp(20), 0); addView(field) }
+        AlertDialog.Builder(this).setTitle("Import local backup").setView(wrapper)
+            .setMessage("A valid v1 backup replaces the local library. Invalid input leaves current data unchanged.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Validate & import") { _, _ ->
+                val imported = library.importBackup(field.text.toString())
+                Toast.makeText(this, if (imported) "Backup imported" else "Invalid backup · current library unchanged", Toast.LENGTH_LONG).show()
+                if (imported) showScreen("Library")
+            }.show()
     }
 
     private fun studyScreen(): View = page { content ->
