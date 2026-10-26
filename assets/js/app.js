@@ -15,7 +15,7 @@
     category: null,
     feedKey: "",
     feedWasGuest: true, // the last feed was drawn without personal rows
-    librarySection: "playlists",
+    librarySection: "home",
     playlistId: null,
     authMode: "signin",
     searchRequestId: 0,
@@ -1869,7 +1869,8 @@
         await lib.setChannelPref({
           channel_key: key,
           channel_name: video.uploaderName,
-          kind
+          kind,
+          avatar: video.avatar || ""
         });
         if (kind === "follow") markChannelSeen(key);
 

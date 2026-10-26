@@ -453,7 +453,7 @@
     "id", "video_id", "title", "channel_title", "thumbnail_url",
     "watched_at", "progress_seconds", "duration_seconds"
   ];
-  const PREF_FIELDS = ["channel_key", "channel_name", "kind", "created_at"];
+  const PREF_FIELDS = ["channel_key", "channel_name", "kind", "avatar", "created_at"];
   const NOTE_FIELDS = ["id", "video_id", "seconds", "body", "created_at"];
   const LIKE_FIELDS = [
     "id", "video_id", "title", "channel_title", "thumbnail_url", "created_at"
@@ -881,7 +881,7 @@
       .map((row) => pick(row, PREF_FIELDS));
   }
 
-  async function setChannelPref({ channel_key, channel_name, kind } = {}) {
+  async function setChannelPref({ channel_key, channel_name, kind, avatar } = {}) {
     const key = requireString(channel_key, "Channel").slice(0, 200);
     const name = requireString(channel_name, "Channel name").slice(0, 300);
 
@@ -889,6 +889,11 @@
       throw new Error("Choose follow or block.");
     }
 
+    // The channel picture is optional and must be a plain https URL.
+    const picture =
+      typeof avatar === "string" && /^https:\/\//.test(avatar) && avatar.length <= 2000
+        ? avatar
+        : null;
     const state = await store();
     let row = state.channel_preferences.find(
       (entry) => entry.channel_key === key
@@ -897,8 +902,16 @@
     if (row) {
       row.channel_name = name;
       row.kind = kind;
+
+      if (picture) row.avatar = picture;
     } else {
-      row = { channel_key: key, channel_name: name, kind, created_at: nowIso() };
+      row = {
+        channel_key: key,
+        channel_name: name,
+        kind,
+        avatar: picture,
+        created_at: nowIso()
+      };
       state.channel_preferences.push(row);
     }
 
