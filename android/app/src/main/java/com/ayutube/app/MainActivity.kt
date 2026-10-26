@@ -71,6 +71,7 @@ class MainActivity : AppCompatActivity() {
     private var playback: PlaybackController? = null
     private var playerView: PlayerView? = null
     private var activeVideo: VideoItem? = null
+    private var playlistFirstVideo: VideoItem? = null
     private var playerStatus: TextView? = null
     private var descriptionView: TextView? = null
     private var currentScreen = "Home"
@@ -448,22 +449,47 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun channelScreen(url: String): View = page { content ->
-        content.addView(pill("← Back to search", panel2, paper) { showScreen("Search") }.apply {
-            layoutParams = LinearLayout.LayoutParams(-1, dp(42))
+        content.addView(pill("← Back to results", panel2, paper) { showScreen("Search") }.apply {
+            layoutParams = LinearLayout.LayoutParams(-1, dp(40))
         })
-        val heading = label("Loading channel…", 22f, paper, true).apply { setPadding(0, dp(15), 0, dp(6)) }
-        val statusView = label("Fetching channel information and latest videos.", 12f, muted, false)
+        val cover = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(16), dp(14), dp(14))
+            background = outlineRounded(panel, 4, steel)
+        }
+        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val avatar = thumbnailImage("", null)
+        avatar.setImageDrawable(null)
+        avatar.background = rounded(panel2, 4)
+        head.addView(avatar, LinearLayout.LayoutParams(dp(78), dp(78)).apply { rightMargin = dp(13) })
+        val headingCopy = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label("Loading channel…", 20f, paper, true))
+            addView(label("Getting channel details", 11f, muted, false).apply { setPadding(0, dp(6), 0, 0) })
+        }
+        head.addView(headingCopy, LinearLayout.LayoutParams(0, -2, 1f))
+        cover.addView(head)
+        val statusView = label("Loading videos…", 11f, muted, false).apply { setPadding(0, dp(12), 0, dp(8)) }
+        cover.addView(statusView)
+        cover.addView(pill("Search this channel", accent, Color.BLACK) {
+            val name = headingCopy.getChildAt(0) as TextView
+            searchFor(name.text.toString())
+        }.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(40)) })
+        content.addView(cover)
+        content.addView(label("Videos", 18f, paper, true).apply { setPadding(0, dp(22), 0, dp(9)) })
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        content.addView(heading); content.addView(statusView); content.addView(list)
+        content.addView(list)
         io.execute {
             try {
                 val details = NewPipeRepository.channelDetails(url)
                 main.post {
                     if (currentScreen != "Channel" || selectedCatalogUrl != url) return@post
-                    heading.text = details.channel.title
-                    statusView.text = "${details.channel.subscribers.takeIf { it >= 0 }?.let { compactCount(it) + " subscribers" } ?: "YouTube channel"}${if (details.channel.verified) " · Verified" else ""}"
-                    if (details.channel.description.isNotBlank()) list.addView(label(details.channel.description.take(1800), 12f, muted, false).apply { setPadding(0, dp(12), 0, dp(14)) })
-                    if (details.videos.isEmpty()) list.addView(card("No videos available", "The channel loaded but did not expose a video tab."))
+                    val item = details.channel
+                    (headingCopy.getChildAt(0) as TextView).text = item.title
+                    (headingCopy.getChildAt(1) as TextView).text = (if (item.verified) "✓ Verified  ·  " else "") +
+                        (item.subscribers.takeIf { it >= 0 }?.let { compactCount(it) + " subscribers" } ?: "YouTube channel")
+                    loadThumbnail(avatar, item.thumbnailUrl, null)
+                    statusView.text = item.description.ifBlank { "Latest videos from this channel." }.take(900)
+                    if (details.videos.isEmpty()) list.addView(card("No videos available", "This channel did not expose a video tab."))
                     details.videos.forEach { list.addView(videoCard(it)) }
                 }
             } catch (error: Throwable) {
@@ -473,25 +499,39 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun playlistScreen(url: String): View = page { content ->
-        content.addView(pill("← Back to search", panel2, paper) { showScreen("Search") }.apply {
-            layoutParams = LinearLayout.LayoutParams(-1, dp(42))
+        content.addView(pill("← Back to results", panel2, paper) { showScreen("Search") }.apply {
+            layoutParams = LinearLayout.LayoutParams(-1, dp(40))
         })
-        val heading = label("Loading playlist…", 22f, paper, true).apply { setPadding(0, dp(15), 0, dp(6)) }
-        val statusView = label("Fetching playlist items.", 12f, muted, false)
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = outlineRounded(panel, 4, steel)
+        }
+        val thumb = thumbnailImage("", null)
+        hero.addView(thumb, LinearLayout.LayoutParams(-1, dp(178)))
+        val title = label("Loading playlist…", 20f, paper, true).apply { setPadding(0, dp(12), 0, dp(5)) }
+        val subtitle = label("Fetching playlist items", 11f, muted, false)
+        hero.addView(title); hero.addView(subtitle)
+        hero.addView(pill("Play first video", accent, Color.BLACK) {
+            playlistFirstVideo?.let { openVideo(it) }
+        }.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(42)).apply { topMargin = dp(12) } })
+        content.addView(hero)
+        content.addView(label("Playlist videos", 18f, paper, true).apply { setPadding(0, dp(22), 0, dp(9)) })
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        content.addView(heading); content.addView(statusView); content.addView(list)
+        content.addView(list)
         io.execute {
             try {
                 val details = NewPipeRepository.playlistDetails(url)
                 main.post {
                     if (currentScreen != "Playlist" || selectedCatalogUrl != url) return@post
-                    heading.text = details.playlist.title
-                    statusView.text = "${details.playlist.uploader.ifBlank { "YouTube playlist" }} · ${details.playlist.videoCount.takeIf { it >= 0 }?.let { "$it videos" } ?: "Playlist"}"
+                    title.text = details.playlist.title
+                    subtitle.text = "${details.playlist.uploader.ifBlank { "YouTube playlist" }} · ${details.playlist.videoCount.takeIf { it >= 0 }?.let { "$it videos" } ?: "Playlist"}"
+                    loadThumbnail(thumb, details.playlist.thumbnailUrl, null)
+                    playlistFirstVideo = details.videos.firstOrNull()
                     if (details.videos.isEmpty()) list.addView(card("Playlist is empty", "No video items were returned."))
-                    details.videos.forEach { list.addView(videoCard(it)) }
+                    details.videos.forEach { list.addView(videoRow(it)) }
                 }
             } catch (error: Throwable) {
-                main.post { if (currentScreen == "Playlist" && selectedCatalogUrl == url) statusView.text = "Playlist load failed: ${error.message?.take(140) ?: "Extractor error"}" }
+                main.post { if (currentScreen == "Playlist" && selectedCatalogUrl == url) subtitle.text = "Playlist load failed: ${error.message?.take(140) ?: "Extractor error"}" }
             }
         }
     }
@@ -667,49 +707,88 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun watchScreen(video: VideoItem): View = page { content ->
-        content.addView(pill("← Back to search", panel2, paper) { showScreen("Search") }.apply {
-            layoutParams = LinearLayout.LayoutParams(-1, dp(42))
+        content.addView(pill("← Back", panel2, paper) { showScreen(previousScreen) }.apply {
+            layoutParams = LinearLayout.LayoutParams(-1, dp(38))
         })
+        val playerFrame = FrameLayout(this).apply {
+            background = rounded(Color.BLACK, 3); clipToOutline = true
+        }
         val view = PlayerView(this).apply {
-            useController = true
-            setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-            setBackgroundColor(Color.BLACK)
-            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            useController = true; setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+            setBackgroundColor(Color.BLACK); resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
         playerView = view
-        content.addView(view, LinearLayout.LayoutParams(-1, dp(226)).apply {
-            topMargin = dp(12)
-            bottomMargin = dp(14)
-        })
-        content.addView(label(video.title, 18f, paper, true))
-        content.addView(label(video.channelName, 12f, muted, false).apply {
-            setPadding(0, dp(6), 0, dp(3))
-        })
-        playerStatus = label("Waiting for extractor…", 11f, muted, false).apply {
-            setPadding(0, dp(8), 0, dp(12))
-        }
+        playerFrame.addView(view, FrameLayout.LayoutParams(-1, -1))
+        content.addView(playerFrame, LinearLayout.LayoutParams(-1, dp(206)).apply { topMargin = dp(12); bottomMargin = dp(13) })
+        content.addView(label(video.title, 19f, paper, true).apply { setPadding(0, dp(3), 0, dp(7)) })
+        content.addView(label(listOf(video.viewsLabel, video.durationLabel).filter { it.isNotBlank() }.joinToString(" · "), 11f, muted, false))
+        playerStatus = label("Getting the best available stream…", 11f, accent, false).apply { setPadding(0, dp(9), 0, dp(11)) }
         content.addView(playerStatus)
-        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        actions.addView(pill(if (library.isLiked(video.id)) "♥ Liked" else "♡ Like", panel2, paper) {
-            val liked = library.toggleLike(activeVideo ?: video)
-            Toast.makeText(this@MainActivity, if (liked) "Added to liked videos" else "Removed from liked videos", Toast.LENGTH_SHORT).show()
-        }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(5) })
-        actions.addView(pill("＋ Watch later", panel2, paper) {
-            val added = library.addWatchLater(activeVideo ?: video)
-            Toast.makeText(this@MainActivity, if (added) "Saved to Watch later" else "Already in Watch later", Toast.LENGTH_SHORT).show()
-        }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(5) })
-        content.addView(actions)
-        val extras = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        extras.addView(pill("＋ Add to playlist", panel2, paper) { choosePlaylist(video) },
-            LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(5); topMargin = dp(8) })
-        extras.addView(pill("Video note", panel2, paper) { editVideoNote(video) },
-            LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(5); topMargin = dp(8) })
-        content.addView(extras)
-        content.addView(label("About this video", 15f, paper, true).apply {
-            setPadding(0, dp(22), 0, dp(8))
+
+        val ownerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = outlineRounded(panel, 4, steel); setPadding(dp(10), dp(9), dp(10), dp(9))
+        }
+        val avatar = TextView(this).apply {
+            text = video.channelName.firstOrNull()?.uppercaseChar()?.toString() ?: "▶"
+            textSize = 15f; gravity = Gravity.CENTER; setTextColor(paper); background = rounded(steel, 3)
+        }
+        ownerRow.addView(avatar, LinearLayout.LayoutParams(dp(38), dp(38)).apply { rightMargin = dp(10) })
+        ownerRow.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label(video.channelName.ifBlank { "YouTube channel" }, 13f, paper, true))
+            addView(label("Video creator", 10f, muted, false).apply { setPadding(0, dp(4), 0, 0) })
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        ownerRow.addView(pill("Channel", panel2, paper) {
+            if (video.channelUrl.isNotBlank()) openChannel(video.channelUrl) else searchFor(video.channelName)
         })
-        descriptionView = label("Loading description…", 12f, muted, false)
+        content.addView(ownerRow)
+
+        val actionRow1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val likedButton = pill(if (library.isLiked(video.id)) "♥  Liked" else "♡  Like", panel2, paper) {
+            val liked = library.toggleLike(activeVideo ?: video)
+            this.text = if (liked) "♥  Liked" else "♡  Like"
+            Toast.makeText(this@MainActivity, if (liked) "Added to liked videos" else "Removed from liked videos", Toast.LENGTH_SHORT).show()
+        }
+        actionRow1.addView(likedButton, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(5) })
+        actionRow1.addView(pill("＋  Watch later", panel2, paper) {
+            val added = library.addWatchLater(activeVideo ?: video)
+            Toast.makeText(this@MainActivity, if (added) "Saved to Watch Later" else "Already saved", Toast.LENGTH_SHORT).show()
+        }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(5) })
+        content.addView(actionRow1, LinearLayout.LayoutParams(-1, dp(42)).apply { topMargin = dp(10) })
+        val actionRow2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        actionRow2.addView(pill("Add to playlist", panel2, paper) { choosePlaylist(video) },
+            LinearLayout.LayoutParams(0, dp(40), 1f).apply { rightMargin = dp(5) })
+        actionRow2.addView(pill("Video note", panel2, paper) { editVideoNote(video) },
+            LinearLayout.LayoutParams(0, dp(40), 1f).apply { leftMargin = dp(5) })
+        actionRow2.addView(pill("Share", accent, Color.BLACK) { shareVideo(video) },
+            LinearLayout.LayoutParams(0, dp(40), 0.7f).apply { leftMargin = dp(5) })
+        content.addView(actionRow2, LinearLayout.LayoutParams(-1, dp(40)).apply { topMargin = dp(7) })
+
+        content.addView(label("Description", 16f, paper, true).apply { setPadding(0, dp(20), 0, dp(8)) })
+        descriptionView = label("Loading description…", 12f, muted, false).apply {
+            background = outlineRounded(panel, 4, steel); setPadding(dp(12), dp(12), dp(12), dp(12))
+        }
         content.addView(descriptionView)
+        content.addView(label("Up next", 18f, paper, true).apply { setPadding(0, dp(22), 0, dp(8)) })
+        val relatedHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(relatedHost)
+        loadRelatedVideos(video, relatedHost)
+    }
+
+    private fun loadRelatedVideos(video: VideoItem, host: LinearLayout) {
+        val token = ++relatedEpoch
+        host.removeAllViews(); host.addView(card("Finding related videos", "Based on this video's title."))
+        io.execute {
+            val items = runCatching { NewPipeRepository.search(video.title.take(100)).items.filter { it.id != video.id }.take(5) }
+            main.post {
+                if (token != relatedEpoch || currentScreen != "Watch" || activeVideo?.id != video.id) return@post
+                host.removeAllViews()
+                val rows = items.getOrNull().orEmpty()
+                if (rows.isEmpty()) host.addView(card("No recommendations yet", "Try another search to discover more videos."))
+                rows.forEach { host.addView(videoRow(it)) }
+            }
+        }
     }
 
     private fun releasePlayback() {
@@ -721,48 +800,56 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun libraryScreen(): View = page { content ->
-        content.addView(label("Your library", 27f, paper, true))
-        content.addView(label("Saved locally on this device", 12f, muted, false).apply { setPadding(0, dp(5), 0, dp(16)) })
+        content.addView(sectionHeading("Library", "Everything you saved, stored on this phone."))
+        val tabs = listOf("History", "Liked", "Watch Later", "Playlists")
+        content.addView(chipRail(tabs, tabs.indexOf(libraryTab).coerceAtLeast(0)) { index ->
+            libraryTab = tabs[index]; showScreen("Library")
+        }.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(40)).apply { topMargin = dp(14); bottomMargin = dp(12) } })
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        controls.addView(pill("＋ New playlist", accent, ink) { createPlaylistDialog() },
-            LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(5) })
+        controls.addView(pill("＋ New playlist", accent, Color.BLACK) { createPlaylistDialog() },
+            LinearLayout.LayoutParams(0, dp(40), 1f).apply { rightMargin = dp(5) })
         controls.addView(pill("Export backup", panel2, paper) { shareLibraryBackup() },
-            LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(5) })
+            LinearLayout.LayoutParams(0, dp(40), 1f).apply { leftMargin = dp(5) })
         content.addView(controls)
         content.addView(pill("Import JSON backup", panel2, paper) { importLibraryBackupDialog() }.apply {
-            layoutParams = LinearLayout.LayoutParams(-1, dp(42)).apply { topMargin = dp(7) }
+            layoutParams = LinearLayout.LayoutParams(-1, dp(38)).apply { topMargin = dp(7); bottomMargin = dp(14) }
         })
-        listOf("History" to library.history(), "Liked videos" to library.likes(), "Watch later" to library.watchLater()).forEach { pair ->
-            content.addView(label(pair.first, 17f, paper, true).apply { setPadding(0, dp(18), 0, dp(8)) })
-            if (pair.second.isEmpty()) {
-                content.addView(label("Nothing here yet", 12f, muted, false).apply { setPadding(dp(6), dp(8), 0, dp(8)) })
-            } else {
-                pair.second.take(12).forEach { content.addView(videoRow(it)) }
+        when (libraryTab) {
+            "History" -> renderLibraryVideos(content, "Recently watched", library.history(), "Your watch history will appear here.")
+            "Liked" -> renderLibraryVideos(content, "Liked videos", library.likes(), "Tap Like on a video to keep it here.")
+            "Watch Later" -> renderLibraryVideos(content, "Watch Later", library.watchLater(), "Save a video to watch it later.")
+            else -> {
+                content.addView(label("Your playlists", 18f, paper, true).apply { setPadding(0, dp(8), 0, dp(8)) })
+                val custom = library.playlists()
+                if (custom.isEmpty()) content.addView(card("No playlists yet", "Create one, then add videos from the Watch screen."))
+                custom.forEach { playlist ->
+                    val block = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL; setPadding(dp(11), dp(11), dp(11), dp(11))
+                        background = outlineRounded(panel, 4, steel)
+                    }
+                    block.addView(label(playlist.name, 15f, paper, true))
+                    block.addView(label("${playlist.videos.size} videos · saved locally", 11f, muted, false).apply { setPadding(0, dp(4), 0, dp(8)) })
+                    playlist.videos.take(12).forEach { block.addView(videoRow(it)) }
+                    block.addView(pill("Delete playlist", panel2, muted) {
+                        AlertDialog.Builder(this).setTitle("Delete ${playlist.name}?")
+                            .setMessage("Only this local playlist will be removed.")
+                            .setNegativeButton("Cancel", null)
+                            .setPositiveButton("Delete") { _, _ -> library.deletePlaylist(playlist.id); showScreen("Library") }.show()
+                    }.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(38)).apply { topMargin = dp(8) } })
+                    content.addView(block, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+                }
             }
         }
-        content.addView(label("Your playlists", 18f, paper, true).apply { setPadding(0, dp(18), 0, dp(8)) })
-        val custom = library.playlists()
-        if (custom.isEmpty()) content.addView(label("Create a playlist from this screen or save a video to one from Watch.", 12f, muted, false))
-        custom.forEach { playlist ->
-            content.addView(label(playlist.name + " · " + playlist.videos.size + " videos", 14f, paper, true).apply {
-                setPadding(dp(4), dp(12), 0, dp(8))
-            })
-            playlist.videos.take(8).forEach { content.addView(videoRow(it)) }
-            content.addView(pill("Delete playlist", panel2, muted) {
-                AlertDialog.Builder(this).setTitle("Delete ${playlist.name}?")
-                    .setMessage("Only this local playlist will be removed.")
-                    .setNegativeButton("Cancel", null)
-                    .setPositiveButton("Delete") { _, _ -> library.deletePlaylist(playlist.id); showScreen("Library") }
-                    .show()
-            }.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(38)).apply { topMargin = dp(3) } })
-        }
-        content.addView(pill("Clear watch history", panel2, paper) {
-            AlertDialog.Builder(this).setTitle("Clear history?")
-                .setMessage("This only clears local watch history on this device.")
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Clear") { _, _ -> library.clearHistory(); showScreen("Library") }
-                .show()
-        }.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(18) } })
+        if (libraryTab == "History") content.addView(pill("Clear watch history", panel2, paper) {
+            AlertDialog.Builder(this).setTitle("Clear history?").setMessage("This only clears local watch history on this device.")
+                .setNegativeButton("Cancel", null).setPositiveButton("Clear") { _, _ -> library.clearHistory(); showScreen("Library") }.show()
+        }.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(40)).apply { topMargin = dp(14) } })
+    }
+
+    private fun renderLibraryVideos(content: LinearLayout, title: String, videos: List<VideoItem>, emptyMessage: String) {
+        content.addView(label(title, 18f, paper, true).apply { setPadding(0, dp(9), 0, dp(8)) })
+        if (videos.isEmpty()) content.addView(card("Nothing here yet", emptyMessage))
+        else videos.forEach { content.addView(videoRow(it)) }
     }
 
     private fun createPlaylistDialog() {
@@ -890,6 +977,33 @@ class MainActivity : AppCompatActivity() {
         content.addView(label("Selected subjects: " + subjectNames.joinToString().ifBlank { "none yet" }, 12f, muted, false).apply {
             setPadding(0, dp(12), 0, 0)
         })
+    }
+
+    private fun accountScreen(): View = page { content ->
+        content.addView(sectionHeading("You", "Your preferences and app settings."))
+        val profile = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(14)); background = outlineRounded(panel, 4, steel)
+        }
+        profile.addView(TextView(this).apply {
+            text = "A"; textSize = 23f; gravity = Gravity.CENTER; setTextColor(Color.BLACK)
+            setTypeface(typeface, android.graphics.Typeface.BOLD); background = rounded(accent, 4)
+        }, LinearLayout.LayoutParams(dp(52), dp(52)).apply { rightMargin = dp(12) })
+        profile.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label("AyuTube on this device", 15f, paper, true))
+            addView(label("No sign-in · no cloud profile", 11f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+        })
+        content.addView(profile, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(17); bottomMargin = dp(18) })
+        content.addView(label("Your app", 17f, paper, true).apply { setPadding(0, 0, 0, dp(8)) })
+        content.addView(actionRow("Study mode", "Exam countdown and subject settings") { showScreen("Study") })
+        content.addView(actionRow("Library & backups", "Likes, history, playlists and JSON export") { showScreen("Library") })
+        content.addView(actionRow("Search YouTube", "Find videos, channels and playlists") { searchMode = "Videos"; showScreen("Search") })
+        content.addView(label("Privacy", 17f, paper, true).apply { setPadding(0, dp(20), 0, dp(8)) })
+        content.addView(card("Local-first", "Your likes, watch history, playlists, study settings and notes are saved on this device. There is no account or cloud sync in this native build."))
+        content.addView(label("About AyuTube", 17f, paper, true).apply { setPadding(0, dp(20), 0, dp(8)) })
+        content.addView(card("Native Android", "Built with Kotlin, NewPipeExtractor and AndroidX Media3. YouTube extraction can change upstream; some stream formats may not be available."))
+        content.addView(label("AyuTube · Native preview", 10f, dim, false).apply { gravity = Gravity.CENTER; setPadding(0, dp(22), 0, 0) })
     }
 
     private fun placeholder(title: String, subtitle: String, detail: String): View = page { content ->
