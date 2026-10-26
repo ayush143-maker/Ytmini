@@ -3270,3 +3270,58 @@ body.has-now-playing .stage {
     border-radius: 0;
   }
 }
+
+/* 36. Study mode ------------------------------------------------------------- */
+
+.study-details[hidden] {
+  display: none;
+}
+
+.study-label {
+  margin: 18px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.study-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.study-feed-chips {
+  flex-wrap: nowrap;
+  padding: 4px 0 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.study-feed-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.study-feed-chips .ay-chip {
+  flex: none;
+}
+
+.study-hint {
+  margin: 8px 0 0;
+  color: var(--dim);
+  font-size: 12.5px;
+}
+
+.study-custom {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.study-custom input {
+  flex: 1;
+  min-width: 0;
+}
+
+body[data-study-feed="on"] #ayutube-category-list,
+body[data-study-feed="on"] #ayutube-suggestion-list {
+  display: none;
+}

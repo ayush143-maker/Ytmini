@@ -229,6 +229,7 @@
       interests: [],
       exam_name: null,
       exam_date: null,
+      subjects: [],
       onboarded_at: null
     }
   });
@@ -1006,6 +1007,7 @@
       interests: Array.isArray(profile?.interests) ? [...profile.interests] : [],
       exam_name: profile?.exam_name ?? null,
       exam_date: profile?.exam_date ?? null,
+      subjects: Array.isArray(profile?.subjects) ? [...profile.subjects] : [],
       onboarded_at: profile?.onboarded_at ?? null
     };
   }
@@ -1030,7 +1032,7 @@
    * Saves only the fields that are passed. `onboarded: true` records that the
    * first-run choices were made (or skipped).
    */
-  async function saveProfile({ interests, exam_name, exam_date, onboarded } = {}) {
+  async function saveProfile({ interests, exam_name, exam_date, onboarded, subjects } = {}) {
     const payload = {};
 
     if (interests !== undefined) {
@@ -1073,6 +1075,30 @@
       }
 
       payload.exam_date = exam_date || null;
+    }
+
+    if (subjects !== undefined) {
+      if (!Array.isArray(subjects)) {
+        throw new Error("Subjects must be a list.");
+      }
+
+      const clean = [
+        ...new Set(
+          subjects
+            .map((item) => (typeof item === "string" ? item.trim().replace(/\s+/g, " ") : ""))
+            .filter(Boolean)
+        )
+      ];
+
+      if (clean.length > 8) {
+        throw new Error("Choose up to 8 subjects.");
+      }
+
+      if (clean.some((item) => item.length > 40)) {
+        throw new Error("Subject names can be up to 40 characters.");
+      }
+
+      payload.subjects = clean;
     }
 
     if (onboarded === true) {

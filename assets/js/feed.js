@@ -231,6 +231,17 @@
       // A known guest has no personal rows, so the feed need not wait for the
       // account check (which may load the Supabase SDK).
       personal = ui.isKnownGuest() ? ui.peekPersonal() : await ui.getPersonal();
+
+      // Study mode with subjects has its own Home; everyone else gets the
+      // category feed (plus "Because you watched" shelves further down).
+      if (study && !category && window.AyuTubeStudy) {
+        const handled = await window.AyuTubeStudy.renderFeed(container, { current });
+
+        if (!current()) return;
+        if (handled) return;
+      } else {
+        document.body.dataset.studyFeed = "off";
+      }
       module = await ui.ensureCategories();
 
       const visible = ui.visibleCategories(module);
@@ -261,6 +272,7 @@
       if (!current()) return;
 
       build({ container, ui, cards, module, active, topics, queries, groups, personal, reserve, token, study });
+      if (!study && !category) window.AyuTubeStudy?.appendForYou?.(container, { current });
     } catch (error) {
       if (!current()) return;
 

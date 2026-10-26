@@ -39,15 +39,6 @@
 
     panel.append(
       switchRow({
-        title: "Study mode",
-        copy: "No cartoons, facts, Up next or autoplay.",
-        checked: UI().isStudy(),
-        onChange: (on) => {
-          setStudy(on);
-          notify(on ? "Study mode is on." : "Study mode is off.");
-        }
-      }),
-      switchRow({
         title: "Pause history",
         copy: "Watched videos and searches are not saved.",
         checked: store.get("ayutube.noHistory", false) === true,
@@ -344,9 +335,9 @@
       container.replaceChildren();
 
       await renderData(container);
+      await window.AyuTubeStudy.renderPanel(container, { switchRow });
       renderPreferences(container);
       await renderInterests(container);
-      await renderExam(container);
       renderAbout(container);
     } catch {
       container.replaceChildren();

@@ -599,6 +599,9 @@
     box.hidden = true;
     box.replaceChildren();
 
+    // Notes belong to study mode.
+    if (!ui.isStudy()) return;
+
     try {
       const personal = await ui.getPersonal();
 

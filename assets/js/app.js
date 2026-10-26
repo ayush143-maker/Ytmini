@@ -283,6 +283,7 @@
     interests: [],
     exam_name: null,
     exam_date: null,
+    subjects: [],
     onboarded_at: null
   });
 
