@@ -15,6 +15,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -47,6 +48,7 @@ class MainActivity : AppCompatActivity() {
     private var playerStatus: TextView? = null
     private var descriptionView: TextView? = null
     private var currentScreen = "Home"
+    private var previousScreen = "Search"
     private var searchInput: EditText? = null
     private var resultsHost: LinearLayout? = null
     private var searchStatus: TextView? = null
@@ -65,11 +67,27 @@ class MainActivity : AppCompatActivity() {
         window.navigationBarColor = ink
         window.decorView.systemUiVisibility = 0
         buildShell()
+        previousScreen = savedInstanceState?.getString("previousScreen") ?: "Search"
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val target = when (currentScreen) {
+                    "Watch" -> previousScreen
+                    "Channel", "Playlist" -> "Search"
+                    "Home" -> null
+                    else -> "Home"
+                }
+                if (target == null) {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                } else showScreen(target)
+            }
+        })
         showScreen(savedInstanceState?.getString("screen") ?: "Home")
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("screen", currentScreen)
+        outState.putString("previousScreen", previousScreen)
         super.onSaveInstanceState(outState)
     }
 
@@ -409,6 +427,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openVideo(video: VideoItem) {
+        previousScreen = currentScreen
         releasePlayback()
         activeVideo = video
         showScreen("Watch")
