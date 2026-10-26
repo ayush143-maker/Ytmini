@@ -538,7 +538,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun videoRow(video: VideoItem): View = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(8), dp(8), dp(8), dp(8)); background = panel
+        setPadding(dp(8), dp(8), dp(8), dp(8)); setBackgroundColor(panel)
         isClickable = true; isFocusable = true; setOnClickListener { openVideo(video) }
         val media = FrameLayout(context).apply {
             background = rounded(panel2, 3); clipToOutline = true
@@ -591,14 +591,14 @@ class MainActivity : AppCompatActivity() {
         row.addView(copy, LinearLayout.LayoutParams(0, -2, 1f))
         val more = TextView(this@MainActivity).apply {
             text = "⋮"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(muted); setPadding(dp(5), 0, dp(3), 0)
-            setOnClickListener { videoActions(this@MainActivity, video) }
+            setOnClickListener { videoActions(video) }
         }
         row.addView(more, LinearLayout.LayoutParams(dp(28), dp(34)))
         addView(row)
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(5) }
     }
 
-    private fun videoActions(anchor: View, video: VideoItem) {
+    private fun videoActions(video: VideoItem) {
         val options = arrayOf("Play video", if (library.isLiked(video.id)) "Remove like" else "Like video", "Save to Watch later", "Add to playlist", "Share link", "Video note")
         AlertDialog.Builder(this).setItems(options) { _, which ->
             when (which) {
@@ -1020,7 +1020,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(16), dp(14), dp(26))
         }
-        scroll.addView(content, ScrollView.LayoutParams(-1, -2))
+        scroll.addView(content, FrameLayout.LayoutParams(-1, -2))
         build(content)
         return scroll
     }
