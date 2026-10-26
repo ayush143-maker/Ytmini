@@ -479,7 +479,10 @@
 
       for (const pref of follows) {
         const chip = el("button", "chan-chip");
-        chip.append(avatarNode(pref.channel_name, pref.avatar), el("span", "", pref.channel_name));
+        chip.append(
+          avatarNode(pref.channel_name, pref.avatar, pref.channel_key),
+          el("span", "", pref.channel_name)
+        );
 
         chip.type = "button";
         chip.addEventListener("click", () => {
@@ -624,12 +627,14 @@
   }
 
   /** Round channel picture with the first letter as a fallback. */
-  function avatarNode(name, url) {
+  function avatarNode(name, url, id = "") {
     const node = el("span", "chan-avatar");
 
     node.textContent = (name || "?").trim().charAt(0).toUpperCase();
 
-    if (url) {
+    if (window.AyuAvatars) {
+      window.AyuAvatars.attach(node, { id, url });
+    } else if (url) {
       const picture = el("img");
 
       picture.alt = "";
@@ -679,6 +684,7 @@
       const count = stats[block.stat] || 0;
 
       button.type = "button";
+      button.dataset.art = String(BLOCKS.indexOf(block) + 1);
       button.append(
         blockIcon(block.icon),
         el("span", "lib-block-title", block.label),
@@ -723,6 +729,7 @@
         const total = progress[playlist.id]?.total || 0;
         const art = el("span", "lib-pl-art");
 
+        art.dataset.art = "3";
         art.append(blockIcon("playlist"));
         card.type = "button";
         card.append(
@@ -747,7 +754,7 @@
 
       for (const pref of follows) {
         const button = el("button", "chan-avatar-btn");
-        const picture = avatarNode(pref.channel_name, pref.avatar);
+        const picture = avatarNode(pref.channel_name, pref.avatar, pref.channel_key);
 
         button.type = "button";
         button.append(picture, el("span", "chan-avatar-name", pref.channel_name));
@@ -758,39 +765,6 @@
 
       body.append(shelfHead("Following", "following"), strip);
 
-      // Older follows have no picture yet: fetch it once and remember it.
-      const queue = follows.filter((pref) => !pref.avatar).slice(0, 24);
-      let next = 0;
-
-      const worker = async () => {
-        while (next < queue.length) {
-          const pref = queue[next];
-
-          next += 1;
-
-          try {
-            const data = await window.AyuTubeChannel.load(channelRef(pref));
-            const url = typeof data?.avatar === "string" ? data.avatar : "";
-
-            if (!url) continue;
-
-            const fresh = avatarNode(pref.channel_name, url);
-
-            nodes.get(pref.channel_key)?.replaceWith(fresh);
-            nodes.set(pref.channel_key, fresh);
-            await lib().setChannelPref({
-              channel_key: pref.channel_key,
-              channel_name: pref.channel_name,
-              kind: "follow",
-              avatar: url
-            });
-          } catch {
-            // Keep the letter; try again next time.
-          }
-        }
-      };
-
-      Promise.all([worker(), worker(), worker()]).then(() => ui.invalidatePersonal());
     }
 
     if (!history.length && !later.length && !likes.length && !playlists.length && !follows.length) {

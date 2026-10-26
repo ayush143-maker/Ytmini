@@ -221,7 +221,9 @@
       avatar.textContent = (video.uploaderName || "?").trim().charAt(0).toUpperCase();
       avatar.addEventListener("click", openOwner);
 
-      if (video.avatar) {
+      if (window.AyuAvatars) {
+        window.AyuAvatars.attach(avatar, { id: video.channelId, url: video.avatar });
+      } else if (video.avatar) {
         const picture = el("img");
         picture.alt = "";
         picture.decoding = "async";
@@ -232,7 +234,7 @@
         picture.src = video.avatar;
       }
 
-      card.classList.add("has-avatar");
+card.classList.add("has-avatar");
     }
 
     const more = el("button", "vcard-more");

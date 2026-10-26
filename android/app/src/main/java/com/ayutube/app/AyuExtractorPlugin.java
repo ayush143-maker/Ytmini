@@ -540,6 +540,22 @@ public class AyuExtractorPlugin extends Plugin {
         });
     }
 
+    /** Just the channel's picture and name (used for cards that lack one). */
+    @PluginMethod
+    public void channelAvatar(final PluginCall call) {
+        final String id = call.getString("id", "");
+
+        run(call, () -> {
+            final ChannelInfo info = ChannelInfo.getInfo("https://www.youtube.com/channel/" + id);
+            final JSObject out = new JSObject();
+
+            out.put("avatarUrl", bestImage(info.getAvatars()));
+            out.put("name", info.getName());
+
+            return out;
+        });
+    }
+
     @PluginMethod
     public void channelPlaylists(final PluginCall call) {
         final String id = call.getString("id", "");
