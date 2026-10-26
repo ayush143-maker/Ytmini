@@ -1,0 +1,41 @@
+name: Android Kotlin APK
+
+on:
+  push:
+    branches: [Aurix-to-Kotlin]
+  workflow_dispatch:
+
+concurrency:
+  group: android-kotlin-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-debug-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Build debug APK
+        run: gradle -p kotlin assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ayutube-kotlin-debug-apk
+          path: kotlin/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
