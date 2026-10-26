@@ -1076,7 +1076,23 @@
     player.seekTo({ ms: Math.floor(target) }).catch(() => {});
   }
 
-  function skip(seconds) {
+  /** Refreshes lastState straight from the player (events may lag). */
+  async function freshState() {
+    try {
+      const state = await nativePlayer()?.getState();
+
+      if (state && typeof state === "object" && Number.isFinite(Number(state.positionMs))) {
+        lastState = { ...lastState, ...state };
+      }
+    } catch {
+      // Keep the last known state.
+    }
+
+    return lastState;
+  }
+
+  async function skip(seconds) {
+    await freshState();
     seekToMs((Number(lastState.positionMs) || 0) + seconds * 1000);
   }
 
@@ -1125,6 +1141,7 @@
     if (!isCurrent(token)) return;
 
     activeMode = "native";
+    startPolling();
     await player.setResizeMode({ mode: resizeMode }).catch(() => {});
     syncBounds(true);
     clearTimeout(startTimer);
@@ -1154,6 +1171,7 @@
 
     const token = activeToken;
 
+    await freshState();
     showLoading(token);
     activeMode = "loading";
 
@@ -1254,15 +1272,45 @@
     }
   }
 
+  /** Capacitor's bridge listens to plugin events through cap.addListener. */
+  function listen(name, handler) {
+    const cap = window.Capacitor;
+
+    if (typeof cap?.addListener === "function") {
+      return cap.addListener("AyuPlayer", name, handler);
+    }
+
+    return nativePlayer()?.addListener?.(name, handler);
+  }
+
+  let pollTimer = 0;
+
+  /** Safety net: ask the player for its state twice a second as well. */
+  function startPolling() {
+    if (pollTimer) return;
+
+    pollTimer = setInterval(async () => {
+      if (activeMode !== "native" || document.visibilityState === "hidden") return;
+
+      try {
+        const state = await nativePlayer()?.getState();
+
+        if (state && typeof state === "object" && state.state) onNativeState(state);
+      } catch {
+        // The next tick tries again.
+      }
+    }, 500);
+  }
+
   function wireNative() {
     const player = nativePlayer();
 
     if (wired || !player) return;
 
     wired = true;
-    player.addListener("state", onNativeState);
-    player.addListener("ended", onNativeEnded);
-    player.addListener("error", onNativeError);
+    listen("state", onNativeState);
+    listen("ended", onNativeEnded);
+    listen("error", onNativeError);
     window.addEventListener("ayutubeBack", onBack);
   }
 
@@ -1343,6 +1391,8 @@
   }
 
   function stopSession() {
+    clearInterval(pollTimer);
+    pollTimer = 0;
     clearTimeout(startTimer);
     clearTimeout(hideTimer);
     closeSheet();
