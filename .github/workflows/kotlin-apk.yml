@@ -37,7 +37,7 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon clean assembleDebug --stacktrace
+          ./gradlew --no-daemon clean testDebugUnitTest assembleDebug --stacktrace
       - name: Upload native APK
         uses: actions/upload-artifact@v4
         with:

@@ -181,7 +181,7 @@ object NewPipeRepository {
         }
         initialize()
         val info = ChannelInfo.getInfo(rawUrl)
-        val channelUrl = info.url ?: rawUrl
+        val channelUrl = rawUrl
         val channel = ChannelItem(channelUrl, (info.name ?: "Channel").take(300), bestImage(info.avatars),
             info.description ?: "", info.subscriberCount, -1L, info.isVerified)
         val tab = info.tabs.orEmpty().firstOrNull { it.contentFilters.orEmpty().contains(ChannelTabs.VIDEOS) }
@@ -196,7 +196,7 @@ object NewPipeRepository {
         require(safeYouTubeUrl(rawUrl) && rawUrl.contains("list=")) { "Unsupported playlist URL." }
         initialize()
         val info = PlaylistInfo.getInfo(ServiceList.YouTube, rawUrl)
-        val playlist = PlaylistItem(info.url ?: rawUrl, (info.name ?: "Playlist").take(300), bestImage(info.thumbnails),
+        val playlist = PlaylistItem(rawUrl, (info.name ?: "Playlist").take(300), bestImage(info.thumbnails),
             info.uploaderName ?: "", info.streamCount)
         val videos = info.relatedItems.orEmpty().filterIsInstance<StreamInfoItem>().mapNotNull(::mapItem)
         return PlaylistDetails(playlist, videos)
