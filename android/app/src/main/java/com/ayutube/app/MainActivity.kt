@@ -3,14 +3,19 @@ package com.ayutube.app
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.LruCache
 import android.view.Gravity
 import android.view.inputmethod.EditorInfo
 import android.view.View
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -21,6 +26,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 import com.ayutube.app.data.LocalLibraryRepository
 import com.ayutube.app.data.NewPipeRepository
 import com.ayutube.app.data.PlaybackController
@@ -28,16 +36,34 @@ import com.ayutube.app.data.VideoItem
 import org.schabi.newpipe.extractor.Page
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 
 /** Native-only AyuTube host. No WebView, JavaScript bridge or Capacitor runtime. */
 class MainActivity : AppCompatActivity() {
-    private val ink = Color.rgb(8, 8, 9)
-    private val panel = Color.rgb(19, 19, 21)
-    private val panel2 = Color.rgb(28, 28, 31)
-    private val paper = Color.rgb(244, 243, 239)
-    private val muted = Color.rgb(158, 158, 161)
-    private val accent = Color.rgb(224, 94, 79)
+    // Restored from the read-only Capacitor design tokens: ink/slate/paper/pink.
+    private val ink = Color.rgb(0, 0, 0)
+    private val panel = Color.rgb(18, 18, 18)
+    private val panel2 = Color.rgb(29, 29, 29)
+    private val steel = Color.rgb(46, 46, 46)
+    private val paper = Color.rgb(242, 242, 242)
+    private val muted = Color.rgb(166, 166, 166)
+    private val dim = Color.rgb(140, 140, 140)
+    private val accent = Color.rgb(251, 42, 95)
+    private val accentPressed = Color.rgb(255, 77, 118)
     private val io: ExecutorService = Executors.newFixedThreadPool(3)
+    private val imageIo: ExecutorService = Executors.newFixedThreadPool(3)
+    private val thumbnailClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS).readTimeout(12, TimeUnit.SECONDS).callTimeout(15, TimeUnit.SECONDS).build()
+    private val thumbnailCache = object : LruCache<String, Bitmap>(12 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
+    }
+    private lateinit var appBar: LinearLayout
+    private var homeFeedHost: LinearLayout? = null
+    private var homeEpoch = 0
+    private var relatedEpoch = 0
+    private var libraryTab = "History"
     private val main = Handler(Looper.getMainLooper())
     private lateinit var screenHost: FrameLayout
     private lateinit var nav: LinearLayout
@@ -95,53 +121,77 @@ class MainActivity : AppCompatActivity() {
         activeVideo?.let { video -> playback?.player?.currentPosition?.div(1000L)?.let { library.updateProgress(video.id, it) } }
         releasePlayback()
         io.shutdownNow()
+        imageIo.shutdownNow()
         super.onDestroy()
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun buildShell() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(ink) }
+        appBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(6), dp(12), dp(6))
             setBackgroundColor(ink)
         }
+        val mark = TextView(this).apply {
+            text = "▶"; textSize = 15f; gravity = Gravity.CENTER; setTextColor(Color.BLACK)
+            background = rounded(accent, 4); setPadding(dp(2), 0, 0, 0)
+        }
+        appBar.addView(mark, LinearLayout.LayoutParams(dp(32), dp(28)))
+        val wordmark = TextView(this).apply {
+            text = SpannableString("AyuTube").apply {
+                setSpan(ForegroundColorSpan(paper), 0, 3, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                setSpan(ForegroundColorSpan(accent), 3, 7, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            textSize = 21f; setTypeface(typeface, android.graphics.Typeface.BOLD); setPadding(dp(9), 0, 0, 0)
+            letterSpacing = -0.025f
+        }
+        appBar.addView(wordmark, LinearLayout.LayoutParams(0, -2, 1f))
+        appBar.addView(pill("⌕", panel2, paper) {
+            searchMode = "Videos"; showScreen("Search")
+        }.apply { textSize = 23f; setPadding(0, 0, 0, dp(3)) }, LinearLayout.LayoutParams(dp(42), dp(40)).apply { rightMargin = dp(8) })
+        appBar.addView(TextView(this).apply {
+            text = "A"; textSize = 15f; gravity = Gravity.CENTER; setTextColor(ink)
+            background = rounded(paper, 4); setOnClickListener { showScreen("Account") }
+        }, LinearLayout.LayoutParams(dp(34), dp(34)))
+        root.addView(appBar, LinearLayout.LayoutParams(-1, dp(54)))
+        root.addView(View(this).apply { setBackgroundColor(steel) }, LinearLayout.LayoutParams(-1, dp(1)))
+
         screenHost = FrameLayout(this)
         root.addView(screenHost, LinearLayout.LayoutParams(-1, 0, 1f))
+
         nav = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(ink)
-            setPadding(dp(8), dp(7), dp(8), dp(8))
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setBackgroundColor(ink)
+            setPadding(dp(5), dp(5), dp(5), dp(4))
         }
-        listOf("Home", "Search", "Library", "Study", "Account").forEach { item ->
-            val button = TextView(this).apply {
-                text = item
-                textSize = 11f
-                gravity = Gravity.CENTER
-                setPadding(dp(2), dp(13), dp(2), dp(13))
-                tag = item
-                setOnClickListener { showScreen(item) }
+        val destinations = listOf("Home" to "⌂", "Search" to "⌕", "Library" to "▤", "Study" to "◷", "Account" to "●")
+        destinations.forEach { (item, glyph) ->
+            val tab = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                setPadding(dp(2), dp(4), dp(2), dp(3)); tag = item
+                isClickable = true; isFocusable = true
+                setOnClickListener { if (item == "Search") searchMode = "Videos"; showScreen(item) }
             }
-            nav.addView(button, LinearLayout.LayoutParams(0, dp(44), 1f))
+            tab.addView(TextView(this).apply { text = glyph; textSize = 21f; gravity = Gravity.CENTER; tag = "icon" },
+                LinearLayout.LayoutParams(-1, dp(25)))
+            tab.addView(TextView(this).apply { text = item; textSize = 10f; gravity = Gravity.CENTER; tag = "label" })
+            nav.addView(tab, LinearLayout.LayoutParams(0, dp(50), 1f))
         }
-        root.addView(nav, LinearLayout.LayoutParams(-1, dp(58)))
+        root.addView(View(this).apply { setBackgroundColor(steel) }, LinearLayout.LayoutParams(-1, dp(1)))
+        root.addView(nav, LinearLayout.LayoutParams(-1, dp(60)))
         setContentView(root)
     }
 
     private fun showScreen(name: String) {
         if (currentScreen == "Watch" && name != "Watch") {
-            activeVideo?.let { video ->
-                playback?.player?.currentPosition?.div(1000L)?.let { library.updateProgress(video.id, it) }
-            }
+            activeVideo?.let { video -> playback?.player?.currentPosition?.div(1000L)?.let { library.updateProgress(video.id, it) } }
             releasePlayback()
         }
         currentScreen = name
-        searchInput = null
-        resultsHost = null
-        searchStatus = null
-        playerStatus = null
-        descriptionView = null
-        playerView = null
+        searchInput = null; resultsHost = null; searchStatus = null
+        playerStatus = null; descriptionView = null; playerView = null; homeFeedHost = null
         screenHost.removeAllViews()
         val body = when (name) {
             "Home" -> homeScreen()
@@ -151,67 +201,105 @@ class MainActivity : AppCompatActivity() {
             "Playlist" -> if (selectedCatalogUrl.isNotBlank()) playlistScreen(selectedCatalogUrl) else placeholder("Playlist", "No playlist selected.", "Search for a playlist first.")
             "Library" -> libraryScreen()
             "Study" -> studyScreen()
-            else -> placeholder("AyuTube", "No account. No cloud profile.", "Native Kotlin build · data stored on this device.")
+            else -> accountScreen()
         }
         screenHost.addView(body, FrameLayout.LayoutParams(-1, -1))
+        val selectedRoute = when (name) {
+            "Watch" -> if (previousScreen in listOf("Home", "Search", "Library", "Study", "Account")) previousScreen else "Home"
+            "Channel", "Playlist" -> "Search"
+            else -> name
+        }
         for (i in 0 until nav.childCount) {
-            val item = nav.getChildAt(i) as TextView
-            val selected = item.tag == name
-            item.setTextColor(if (selected) paper else muted)
-            item.background = rounded(if (selected) panel2 else ink, 10)
+            val tab = nav.getChildAt(i) as LinearLayout
+            val selected = tab.tag == selectedRoute
+            tab.background = rounded(if (selected) panel else ink, 4)
+            for (j in 0 until tab.childCount) {
+                val child = tab.getChildAt(j) as TextView
+                child.setTextColor(if (selected) accent else muted)
+                if (child.tag == "icon") child.setTypeface(child.typeface, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            }
         }
     }
 
     private fun homeScreen(): View = page { content ->
-        content.addView(label("AyuTube", 30f, paper, true))
-        content.addView(label("VIDEO, WITHOUT THE CLUTTER", 10f, muted, true).apply {
-            letterSpacing = 0.12f
-            setPadding(0, dp(4), 0, dp(24))
-        })
-        content.addView(card("Native Android", "Kotlin UI · NewPipeExtractor · Media3 playback · local-first"))
-        content.addView(label("Explore", 19f, paper, true).apply { setPadding(0, dp(24), 0, dp(10)) })
-        listOf(
-            "Trending videos" to "trending videos",
-            "Maths" to "maths tutorials",
-            "Coding projects" to "coding projects",
-            "Science" to "science documentaries",
-            "JEE preparation" to "JEE preparation",
-            "Music" to "music videos",
-            "Documentaries" to "documentaries"
-        ).forEach { (title, query) ->
-            content.addView(actionRow(title, "Search YouTube · " + query) { searchFor(query) })
+        content.addView(sectionHeading("Home", "A fresh feed, ready when you are."))
+        val chips = listOf("All" to "", "Trending" to "trending videos", "Music" to "popular music videos",
+            "Gaming" to "gaming highlights", "Learning" to "math tutorials", "Podcasts" to "popular podcasts")
+        content.addView(chipRail(chips.map { it.first }, 0) { index ->
+            val query = chips[index].second
+            if (query.isNotBlank()) searchFor(query) else showScreen("Home")
+        }.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(43)).apply { topMargin = dp(12); bottomMargin = dp(14) } })
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = outlineRounded(panel, 4, accent); setPadding(dp(14), dp(13), dp(12), dp(13))
         }
-        content.addView(label("Search and playback use the on-device extractor.", 12f, muted, false).apply {
-            setPadding(0, dp(18), 0, 0)
-        })
+        val heroCopy = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label("YOUR NEXT WATCH", 10f, accent, true).apply { letterSpacing = 0.12f })
+            addView(label("Find your next rabbit hole.", 16f, paper, true).apply { setPadding(0, dp(5), 0, dp(3)) })
+            addView(label("Explore videos, music and ideas.", 11f, muted, false))
+        }
+        hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
+        hero.addView(pill("Explore  →", accent, Color.BLACK) { searchFor("trending videos") })
+        content.addView(hero)
+        content.addView(label("Recommended for you", 18f, paper, true).apply { setPadding(0, dp(22), 0, dp(4)) })
+        content.addView(label("Picked from live YouTube search", 11f, muted, false).apply { setPadding(0, 0, 0, dp(10)) })
+        homeFeedHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(homeFeedHost)
+        loadHomeFeed(homeFeedHost!!)
+    }
+
+    private fun loadHomeFeed(target: LinearLayout) {
+        val token = ++homeEpoch
+        target.removeAllViews()
+        target.addView(card("Loading your feed", "Finding current videos with the on-device extractor."))
+        val groups = listOf("Trending now" to "trending videos", "Music picks" to "popular music videos", "Learn something" to "math science technology explainers")
+        groups.forEach { (title, query) ->
+            io.execute {
+                val result = runCatching { NewPipeRepository.search(query).items.take(4) }
+                main.post {
+                    if (token != homeEpoch || currentScreen != "Home" || homeFeedHost !== target) return@post
+                    val items = result.getOrNull().orEmpty()
+                    if (items.isEmpty()) {
+                        if (target.childCount == 1 && target.getChildAt(0) is LinearLayout) {
+                            target.removeAllViews()
+                            target.addView(card("Feed unavailable", "Check the connection, or use Search to retry."))
+                        }
+                        return@post
+                    }
+                    if (target.childCount == 1 && target.getChildAt(0) is LinearLayout) target.removeAllViews()
+                    target.addView(label(title, 17f, paper, true).apply { setPadding(0, dp(16), 0, dp(9)) })
+                    items.forEach { target.addView(videoCard(it)) }
+                    target.addView(View(this).apply { setBackgroundColor(steel) }, LinearLayout.LayoutParams(-1, dp(1)).apply { topMargin = dp(6); bottomMargin = dp(4) })
+                }
+            }
+        }
     }
 
     private fun searchScreen(): View = page { content ->
-        content.addView(label("Search", 27f, paper, true))
-        content.addView(label("On-device extraction · no content backend", 12f, muted, false).apply { setPadding(0, dp(6), 0, dp(16)) })
+        content.addView(sectionHeading("Search", "Videos, channels and playlists."))
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val input = EditText(this).apply {
-            hint = "Search YouTube"
-            setHintTextColor(muted); setTextColor(paper); textSize = 14f; isSingleLine = true
-            imeOptions = EditorInfo.IME_ACTION_SEARCH
-            setPadding(dp(13), dp(11), dp(13), dp(11)); background = rounded(panel2, 11)
+            hint = "Search YouTube"; setHintTextColor(dim); setTextColor(paper); textSize = 14f; isSingleLine = true
+            imeOptions = EditorInfo.IME_ACTION_SEARCH; inputType = android.text.InputType.TYPE_CLASS_TEXT
+            setPadding(dp(13), dp(10), dp(13), dp(10)); background = outlineRounded(panel2, 4, steel)
             setOnEditorActionListener { _, action, _ ->
                 if (action == EditorInfo.IME_ACTION_SEARCH) { performSearch(text.toString(), false); true } else false
             }
         }
         searchInput = input
         row.addView(input, LinearLayout.LayoutParams(0, dp(48), 1f))
-        row.addView(pill("Go", accent, ink) { performSearch(input.text.toString(), false) },
-            LinearLayout.LayoutParams(dp(66), dp(48)).apply { leftMargin = dp(8) })
-        content.addView(row)
+        row.addView(pill("Search", accent, Color.BLACK) { performSearch(input.text.toString(), false) },
+            LinearLayout.LayoutParams(dp(82), dp(48)).apply { leftMargin = dp(7) })
+        content.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(15) })
         val modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         listOf("Videos", "Channels", "Playlists").forEach { mode ->
-            modes.addView(pill(mode, if (searchMode == mode) accent else panel2,
-                if (searchMode == mode) ink else paper) { changeSearchMode(mode) },
-                LinearLayout.LayoutParams(0, dp(40), 1f).apply { if (mode != "Videos") leftMargin = dp(6) })
+            modes.addView(pill(mode, if (searchMode == mode) accent else panel, if (searchMode == mode) Color.BLACK else paper) {
+                changeSearchMode(mode)
+            }, LinearLayout.LayoutParams(0, dp(38), 1f).apply { if (mode != "Videos") leftMargin = dp(6) })
         }
-        content.addView(modes, LinearLayout.LayoutParams(-1, dp(40)).apply { topMargin = dp(12) })
-        searchStatus = label("Search videos, channels or playlists.", 12f, muted, false).apply { setPadding(0, dp(15), 0, dp(8)) }
+        content.addView(modes, LinearLayout.LayoutParams(-1, dp(38)).apply { topMargin = dp(12); bottomMargin = dp(6) })
+        searchStatus = label("Search videos, channels or playlists.", 12f, muted, false).apply { setPadding(0, dp(12), 0, dp(8)) }
         content.addView(searchStatus)
         resultsHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(resultsHost)
@@ -264,7 +352,7 @@ class MainActivity : AppCompatActivity() {
                     if (!append && result.items.isEmpty()) {
                         resultsHost?.addView(card("No videos found", "Try a shorter or different search."))
                     }
-                    result.items.forEach { video -> resultsHost?.addView(videoRow(video)) }
+                    result.items.forEach { video -> resultsHost?.addView(videoCard(video)) }
                     if (result.nextPage != null) {
                         resultsHost?.addView(pill("Load more", panel2, paper) {
                             performSearch(currentSearchQuery, true)
@@ -335,8 +423,19 @@ class MainActivity : AppCompatActivity() {
         else -> value.toString()
     }
 
-    private fun catalogRow(title: String, subtitle: String, imageUrl: String, onClick: () -> Unit): View =
-        actionRow(title, subtitle.ifBlank { imageUrl.take(100) }, onClick)
+    private fun catalogRow(title: String, subtitle: String, imageUrl: String, onClick: () -> Unit): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(10), dp(10), dp(10), dp(10)); background = outlineRounded(panel, 4, steel)
+        isClickable = true; isFocusable = true; setOnClickListener { onClick() }
+        addView(thumbnailImage(imageUrl, null), LinearLayout.LayoutParams(dp(104), dp(66)))
+        val copy = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, dp(5), 0)
+            addView(label(title, 14f, paper, true).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END })
+            addView(label(subtitle, 11f, muted, false).apply { setPadding(0, dp(5), 0, 0); maxLines = 2 })
+        }
+        addView(copy, LinearLayout.LayoutParams(0, -2, 1f))
+        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(9) }
+    }
 
     private fun openChannel(url: String) {
         selectedCatalogUrl = url
@@ -365,7 +464,7 @@ class MainActivity : AppCompatActivity() {
                     statusView.text = "${details.channel.subscribers.takeIf { it >= 0 }?.let { compactCount(it) + " subscribers" } ?: "YouTube channel"}${if (details.channel.verified) " · Verified" else ""}"
                     if (details.channel.description.isNotBlank()) list.addView(label(details.channel.description.take(1800), 12f, muted, false).apply { setPadding(0, dp(12), 0, dp(14)) })
                     if (details.videos.isEmpty()) list.addView(card("No videos available", "The channel loaded but did not expose a video tab."))
-                    details.videos.forEach { list.addView(videoRow(it)) }
+                    details.videos.forEach { list.addView(videoCard(it)) }
                 }
             } catch (error: Throwable) {
                 main.post { if (currentScreen == "Channel" && selectedCatalogUrl == url) statusView.text = "Channel load failed: ${error.message?.take(140) ?: "Extractor error"}" }
@@ -389,7 +488,7 @@ class MainActivity : AppCompatActivity() {
                     heading.text = details.playlist.title
                     statusView.text = "${details.playlist.uploader.ifBlank { "YouTube playlist" }} · ${details.playlist.videoCount.takeIf { it >= 0 }?.let { "$it videos" } ?: "Playlist"}"
                     if (details.videos.isEmpty()) list.addView(card("Playlist is empty", "No video items were returned."))
-                    details.videos.forEach { list.addView(videoRow(it)) }
+                    details.videos.forEach { list.addView(videoCard(it)) }
                 }
             } catch (error: Throwable) {
                 main.post { if (currentScreen == "Playlist" && selectedCatalogUrl == url) statusView.text = "Playlist load failed: ${error.message?.take(140) ?: "Extractor error"}" }
@@ -398,32 +497,118 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun videoRow(video: VideoItem): View = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(11), dp(10), dp(11), dp(10))
-        background = rounded(panel, 12)
-        isClickable = true
-        isFocusable = true
-        addView(TextView(context).apply {
-            text = "▶"
-            textSize = 20f
-            gravity = Gravity.CENTER
-            setTextColor(paper)
-            background = rounded(panel2, 9)
-        }, LinearLayout.LayoutParams(dp(72), dp(54)))
+        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(8), dp(8), dp(8), dp(8)); background = panel
+        isClickable = true; isFocusable = true; setOnClickListener { openVideo(video) }
+        val media = FrameLayout(context).apply {
+            background = rounded(panel2, 3); clipToOutline = true
+            addView(thumbnailImage(video.thumbnailUrl, video.id), FrameLayout.LayoutParams(-1, -1))
+            if (video.durationSeconds > 0) addView(durationBadge(video.durationLabel), FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(4); bottomMargin = dp(4) })
+        }
+        addView(media, LinearLayout.LayoutParams(dp(120), dp(68)))
         val details = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(11), 0, dp(2), 0)
-            addView(label(video.title, 13f, paper, true))
-            addView(label(video.channelName.ifBlank { "YouTube video" }, 11f, muted, false).apply {
-                setPadding(0, dp(5), 0, 0)
-            })
-            val facts = listOf(video.durationLabel, video.viewsLabel).filter { it.isNotBlank() }.joinToString(" · ")
-            addView(label(facts, 10f, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+            orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(1), dp(3), dp(1))
+            addView(label(video.title, 13f, paper, true).apply { maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END })
+            addView(label(video.channelName.ifBlank { "YouTube" }, 11f, muted, false).apply { setPadding(0, dp(5), 0, 0); maxLines = 1 })
+            val facts = listOf(video.viewsLabel, video.durationLabel).filter { it.isNotBlank() }.joinToString(" · ")
+            addView(label(facts, 10f, dim, false).apply { setPadding(0, dp(3), 0, 0); maxLines = 1 })
         }
         addView(details, LinearLayout.LayoutParams(0, -2, 1f))
-        setOnClickListener { openVideo(video) }
-        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(7) }
+        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(5) }
+    }
+
+    private fun videoCard(video: VideoItem): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(0, 0, 0, dp(10))
+        val media = FrameLayout(this@MainActivity).apply {
+            background = rounded(panel2, 3); clipToOutline = true
+            addView(thumbnailImage(video.thumbnailUrl, video.id), FrameLayout.LayoutParams(-1, -1))
+            if (video.durationSeconds > 0) addView(durationBadge(video.durationLabel),
+                FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(6); bottomMargin = dp(6) })
+            if (video.isShort) addView(label("SHORTS", 9f, paper, true).apply {
+                background = rounded(accent, 2); setPadding(dp(6), dp(4), dp(6), dp(4))
+            }, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { leftMargin = dp(6); topMargin = dp(6) })
+            setOnClickListener { openVideo(video) }
+        }
+        addView(media, LinearLayout.LayoutParams(-1, dp(200)))
+        val row = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP; setPadding(dp(2), dp(10), 0, 0)
+        }
+        val avatar = TextView(this@MainActivity).apply {
+            text = video.channelName.firstOrNull()?.uppercaseChar()?.toString() ?: "▶"
+            textSize = 14f; gravity = Gravity.CENTER; setTextColor(paper); background = rounded(steel, 3)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        row.addView(avatar, LinearLayout.LayoutParams(dp(35), dp(35)).apply { rightMargin = dp(10) })
+        val copy = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            val title = label(video.title, 14f, paper, true).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; setOnClickListener { openVideo(video) } }
+            addView(title)
+            val metaText = listOf(video.channelName, video.viewsLabel, video.durationLabel).filter { it.isNotBlank() }.joinToString(" · ")
+            val meta = label(metaText, 11f, muted, false).apply { setPadding(0, dp(5), 0, 0); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }
+            addView(meta)
+        }
+        row.addView(copy, LinearLayout.LayoutParams(0, -2, 1f))
+        val more = TextView(this@MainActivity).apply {
+            text = "⋮"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(muted); setPadding(dp(5), 0, dp(3), 0)
+            setOnClickListener { videoActions(this@MainActivity, video) }
+        }
+        row.addView(more, LinearLayout.LayoutParams(dp(28), dp(34)))
+        addView(row)
+        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(5) }
+    }
+
+    private fun videoActions(anchor: View, video: VideoItem) {
+        val options = arrayOf("Play video", if (library.isLiked(video.id)) "Remove like" else "Like video", "Save to Watch later", "Add to playlist", "Share link", "Video note")
+        AlertDialog.Builder(this).setItems(options) { _, which ->
+            when (which) {
+                0 -> openVideo(video)
+                1 -> { library.toggleLike(video); Toast.makeText(this, "Like updated", Toast.LENGTH_SHORT).show() }
+                2 -> { val added = library.addWatchLater(video); Toast.makeText(this, if (added) "Saved to Watch Later" else "Already saved", Toast.LENGTH_SHORT).show() }
+                3 -> choosePlaylist(video)
+                4 -> shareVideo(video)
+                5 -> editVideoNote(video)
+            }
+        }.show()
+    }
+
+    private fun shareVideo(video: VideoItem) {
+        val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, video.url); putExtra(Intent.EXTRA_SUBJECT, video.title) }
+        startActivity(Intent.createChooser(intent, "Share video"))
+    }
+
+    private fun durationBadge(value: String): TextView = label(value, 10f, Color.WHITE, true).apply {
+        background = rounded(Color.rgb(0, 0, 0), 2); setPadding(dp(5), dp(3), dp(5), dp(3))
+    }
+
+    private fun thumbnailImage(rawUrl: String, videoId: String?): ImageView = ImageView(this).apply {
+        scaleType = ImageView.ScaleType.CENTER_CROP
+        setBackgroundColor(panel2)
+        contentDescription = "Video thumbnail"
+        loadThumbnail(this, rawUrl, videoId)
+    }
+
+    private fun loadThumbnail(target: ImageView, rawUrl: String, videoId: String?) {
+        val url = when {
+            rawUrl.startsWith("https://") -> rawUrl
+            !videoId.isNullOrBlank() -> "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+            else -> ""
+        }
+        if (url.isBlank()) return
+        target.tag = url
+        thumbnailCache.get(url)?.let { target.setImageBitmap(it); return }
+        imageIo.execute {
+            val bitmap = try {
+                thumbnailClient.newCall(Request.Builder().url(url).header("User-Agent", "Mozilla/5.0 AyuTube Android").build()).execute().use { response ->
+                    if (!response.isSuccessful) null else {
+                        val bytes = response.body?.bytes()
+                        if (bytes == null || bytes.size > 3 * 1024 * 1024) null else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    }
+                }
+            } catch (_: Throwable) { null }
+            if (bitmap != null) thumbnailCache.put(url, bitmap)
+            main.post { if (target.tag == url && bitmap != null) target.setImageBitmap(bitmap) }
+        }
     }
 
     private fun openVideo(video: VideoItem) {
@@ -716,64 +901,71 @@ class MainActivity : AppCompatActivity() {
     private fun status(message: String) { searchStatus?.text = message }
 
     private fun page(build: (LinearLayout) -> Unit): View {
-        val scroll = ScrollView(this).apply { clipToPadding = false }
+        val scroll = ScrollView(this).apply { clipToPadding = false; isFillViewport = true; overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(28), dp(20), dp(28))
+            setPadding(dp(14), dp(16), dp(14), dp(26))
         }
-        scroll.addView(content, FrameLayout.LayoutParams(-1, -2))
+        scroll.addView(content, ScrollView.LayoutParams(-1, -2))
         build(content)
         return scroll
     }
 
+    private fun sectionHeading(title: String, subtitle: String = ""): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(label(title, 25f, paper, true).apply { letterSpacing = -0.02f })
+        if (subtitle.isNotBlank()) addView(label(subtitle, 12f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+    }
+
+    private fun chipRail(items: List<String>, selected: Int, action: (Int) -> Unit): HorizontalScrollView {
+        val rail = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        items.forEachIndexed { index, item ->
+            val chip = pill(item, if (index == selected) accent else panel2, if (index == selected) Color.BLACK else paper) { action(index) }
+            rail.addView(chip, LinearLayout.LayoutParams(-2, dp(34)).apply { rightMargin = dp(7) })
+        }
+        return HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(rail) }
+    }
+
     private fun label(value: String, size: Float, color: Int, bold: Boolean): TextView = TextView(this).apply {
-        text = value
-        textSize = size
-        setTextColor(color)
+        text = value; textSize = size; setTextColor(color); includeFontPadding = false
         if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
     }
 
     private fun card(title: String, detail: String): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(16), dp(16), dp(16), dp(16))
-        background = rounded(panel, 14)
-        addView(label(title, 15f, paper, true))
+        orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(13), dp(14), dp(13))
+        background = outlineRounded(panel, 4, steel)
+        addView(label(title, 14f, paper, true))
         addView(label(detail, 12f, muted, false).apply { setPadding(0, dp(6), 0, 0) })
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }
     }
 
     private fun actionRow(title: String, subtitle: String, onClick: () -> Unit): View = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(14), dp(13), dp(14), dp(13))
-        background = rounded(panel, 12)
-        isClickable = true
-        isFocusable = true
-        setOnClickListener { onClick() }
+        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(12), dp(12), dp(12), dp(12)); background = outlineRounded(panel, 4, steel)
+        isClickable = true; isFocusable = true; setOnClickListener { onClick() }
+        val symbol = label("▶", 13f, accent, true).apply { gravity = Gravity.CENTER; background = rounded(panel2, 3) }
+        addView(symbol, LinearLayout.LayoutParams(dp(35), dp(35)).apply { rightMargin = dp(11) })
         val copy = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             addView(label(title, 14f, paper, true))
             addView(label(subtitle, 11f, muted, false).apply { setPadding(0, dp(4), 0, 0) })
         }
         addView(copy, LinearLayout.LayoutParams(0, -2, 1f))
-        addView(label("→", 22f, accent, false))
+        addView(label("›", 24f, accent, false))
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(7) }
     }
 
     private fun pill(title: String, backgroundColor: Int, textColor: Int, action: () -> Unit): TextView = TextView(this).apply {
-        text = title
-        textSize = 13f
-        gravity = Gravity.CENTER
-        setTextColor(textColor)
-        background = rounded(backgroundColor, 11)
-        isClickable = true
-        isFocusable = true
-        setPadding(dp(10), dp(7), dp(10), dp(7))
-        setOnClickListener { action() }
+        text = title; textSize = 12f; gravity = Gravity.CENTER; setTextColor(textColor); includeFontPadding = false
+        background = outlineRounded(backgroundColor, 4, if (backgroundColor == accent) accent else steel)
+        isClickable = true; isFocusable = true; setPadding(dp(11), dp(7), dp(11), dp(7)); setOnClickListener { action() }
+    }
+
+    private fun outlineRounded(color: Int, radius: Int, stroke: Int) = android.graphics.drawable.GradientDrawable().apply {
+        setColor(color); cornerRadius = dp(radius).toFloat(); setStroke(dp(1), stroke)
     }
 
     private fun rounded(color: Int, radius: Int) = android.graphics.drawable.GradientDrawable().apply {
-        setColor(color)
-        cornerRadius = dp(radius).toFloat()
+        setColor(color); cornerRadius = dp(radius.coerceAtMost(6)).toFloat()
     }
 }
