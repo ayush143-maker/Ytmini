@@ -9,14 +9,14 @@ The red accent and surfaces are restored from `capacitor` branch CSS read-only: 
 - Strict black background with stacked `#121212` panels; use subtle `#2e2e2e` borders to define surfaces.
 - Reddish pink `#FB2A5F` is reserved for selected navigation, primary calls to action, badges and small visual markers; pressed accent is `#FF4D76`.
 - Boxy layout: small 3–4dp card corners, no giant pill cards, no gradients, restrained typography, 16:9 thumbnails and clear content hierarchy.
-- Persistent compact AyuTube wordmark/header with search and profile entry points; fixed five-destination navigation for Home, Search, Library, Study and Account.
+- Persistent compact AyuTube wordmark/header with search and profile entry points; four-destination navigation for Home, Search, Library and You. Study is reached from the You/Account screen, not a fifth bottom tab. Supports explicit Android 15+ status/navigation-bar and display-cutout insets.
 - Video cards use real remote thumbnails, duration overlays, two-line titles, channel metadata and contextual action menus. Compact rows are used for local lists/up-next.
 
 ## Screen-by-screen plan
 
-1. **Home/feed:** horizontal category chips, compact branded discovery banner, live NewPipe search shelves for trending, music and learning. Loading/failure states must remain explicit; empty categories are not fabricated.
+1. **Home/feed:** horizontal category chips and live NewPipe search shelves for trending, music and learning. The redundant promo banner is removed; loading/failure states stay explicit, and empty shelves are not fabricated.
 2. **Search:** keyboard search, video/channel/playlist modes, progress/error/retry feedback and thumbnail-based video cards. Video search supports continuation pages; channel/playlist extraction currently shows its initial batch.
-3. **Watch/player:** 16:9 Media3 player, title/meta, channel entry, Like, Watch Later, playlist, notes, share and Up Next results. Playback/source selection logic must remain unchanged during visual redesign.
+3. **Watch/player:** 16:9 Media3 player; ten-second back/forward, playback speed, selection from compatible progressive streams that contain audio, real creator avatar, compact Like/Save/Share/More actions, collapsible video description, and Up Next. A persistent mini-player sits above bottom navigation and keeps Media3 alive while browsing.
 4. **Channel:** creator header with avatar, verification/subscriber metadata and video list.
 5. **Playlist:** playlist artwork/title/owner/count, play-first action and ordered list of videos.
 6. **Library:** separate History/Liked/Watch Later/Playlists sections, local playlist management and JSON backup import/export.
@@ -35,10 +35,10 @@ The red accent and surfaces are restored from `capacitor` branch CSS read-only: 
 - [ ] Latest workflow run compiles and runs `testDebugUnitTest` before packaging the debug APK.
 - [ ] Home renders dynamic results and retry/failure state with an unreliable network.
 - [ ] Search results show real 16:9 thumbnails, duration labels, title/channel metadata and menu actions.
-- [ ] Video, channel and playlist routes open; Android Back returns to origin.
-- [ ] Player open/pause/seek/release still works; Like, Watch Later, notes, playlist and share actions work.
+- [ ] Video, channel and playlist routes open; Android Back returns to origin; leaving Watch retains the player and the mini-player can reopen/dismiss it.
+- [ ] Player open/pause/seek/release still works; ten-second seek, speed, compatible quality changes, mini-player pause/resume/reopen/dismiss, More/Less descriptions, Like, Watch Later, notes, playlist and share actions work.
 - [ ] Library tabs and backup import/export preserve the local-only promise.
 - [ ] Study values persist after process restart; Account routes work.
-- [ ] Test thumbnail loading, scrolling, status/navigation bars and keyboard on a physical phone.
+- [ ] Test video and channel-avatar loading, scrolling, status/navigation-bar insets, display cutout, gesture navigation and keyboard on a physical phone.
 
 A green CI build proves compilation and JVM tests, not that every upstream YouTube stream or phone-specific UI path works. Keep a real-device test pass as a separate release gate.

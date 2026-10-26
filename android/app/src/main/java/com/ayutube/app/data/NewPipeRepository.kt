@@ -29,13 +29,15 @@ import java.util.concurrent.TimeUnit
 /** Direct, on-device NewPipeExtractor access. All callers must run this on an IO thread. */
 object NewPipeRepository {
     data class SearchPage(val items: List<VideoItem>, val nextPage: Page?)
+    data class PlaybackStream(val label: String, val url: String, val height: Int)
     data class VideoDetails(
         val item: VideoItem,
         val description: String,
         val uploaderVerified: Boolean,
         val subscriberCount: Long,
         val videoUrl: String?,
-        val audioUrl: String?
+        val audioUrl: String?,
+        val qualityOptions: List<PlaybackStream> = emptyList()
     )
 
     data class ChannelItem(
@@ -125,14 +127,25 @@ object NewPipeRepository {
             channelName = info.uploaderName ?: video.channelName,
             channelUrl = info.uploaderUrl ?: video.channelUrl,
             thumbnailUrl = thumb,
+            channelThumbnailUrl = bestImage(info.uploaderAvatars).ifBlank { video.channelThumbnailUrl },
             durationSeconds = info.duration.takeIf { it > 0 } ?: video.durationSeconds,
             views = info.viewCount.takeIf { it >= 0 } ?: video.views
         )
         // Prefer a progressive stream that contains both audio and video. Video-only
         // DASH tracks need a muxed audio source and are deliberately not misplayed as full video.
-        val videoStream = info.videoStreams.orEmpty().firstOrNull {
-            it.isUrl && it.deliveryMethod == org.schabi.newpipe.extractor.stream.DeliveryMethod.PROGRESSIVE_HTTP && !it.isVideoOnly && safeMediaUrl(it.content)
-        }
+        // Only offer progressive streams that include audio; Media3 can play these
+        // without silently dropping sound or attempting to mux incompatible tracks.
+        val qualityOptions = info.videoStreams.orEmpty()
+            .filter { it.isUrl && it.deliveryMethod == org.schabi.newpipe.extractor.stream.DeliveryMethod.PROGRESSIVE_HTTP && !it.isVideoOnly && safeMediaUrl(it.content) }
+            .map { stream ->
+                val label = stream.resolution.ifBlank { "Original" }
+                val height = Regex("(\\d+)").find(label)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+                PlaybackStream(label, stream.content, height)
+            }
+            .distinctBy { it.url }
+            .sortedBy { it.height }
+        val videoStream = qualityOptions.filter { it.height in 1..720 }.maxByOrNull { it.height }
+            ?: qualityOptions.firstOrNull()
         val audioStream = info.audioStreams.orEmpty().firstOrNull {
             it.isUrl && it.deliveryMethod == org.schabi.newpipe.extractor.stream.DeliveryMethod.PROGRESSIVE_HTTP && safeMediaUrl(it.content)
         }
@@ -141,8 +154,9 @@ object NewPipeRepository {
             description = info.description?.content ?: "",
             uploaderVerified = info.isUploaderVerified,
             subscriberCount = info.uploaderSubscriberCount,
-            videoUrl = videoStream?.content,
-            audioUrl = audioStream?.content
+            videoUrl = videoStream?.url,
+            audioUrl = audioStream?.content,
+            qualityOptions = qualityOptions
         )
     }
 
@@ -221,6 +235,7 @@ object NewPipeRepository {
             channelName = (item.uploaderName ?: "").take(300),
             channelUrl = item.uploaderUrl ?: "",
             thumbnailUrl = bestImage(item.thumbnails),
+            channelThumbnailUrl = bestImage(item.uploaderAvatars),
             durationSeconds = item.duration.coerceAtLeast(0),
             views = item.viewCount,
             isShort = item.isShortFormContent

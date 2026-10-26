@@ -9,7 +9,8 @@ data class VideoItem(
     val thumbnailUrl: String = "",
     val durationSeconds: Long = 0L,
     val views: Long = -1L,
-    val isShort: Boolean = false
+    val isShort: Boolean = false,
+    val channelThumbnailUrl: String = ""
 ) {
     val durationLabel: String
         get() {

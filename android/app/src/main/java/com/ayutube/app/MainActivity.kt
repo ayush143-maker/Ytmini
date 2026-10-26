@@ -22,6 +22,10 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.ViewCompat
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -67,6 +71,22 @@ class MainActivity : AppCompatActivity() {
     private val main = Handler(Looper.getMainLooper())
     private lateinit var screenHost: FrameLayout
     private lateinit var nav: LinearLayout
+    private var miniPlayer: LinearLayout? = null
+    private var miniThumbnail: ImageView? = null
+    private var miniTitle: TextView? = null
+    private var miniSubtitle: TextView? = null
+    private var miniPlayButton: ImageView? = null
+    private var descriptionToggleView: TextView? = null
+    private var watchChannelAvatar: FrameLayout? = null
+    private var watchChannelNameView: TextView? = null
+    private var descriptionContent = ""
+    private var descriptionExpanded = false
+    private var qualityOptions: List<NewPipeRepository.PlaybackStream> = emptyList()
+    private var autoQuality: NewPipeRepository.PlaybackStream? = null
+    private var selectedQuality: NewPipeRepository.PlaybackStream? = null
+    private var qualityButton: TextView? = null
+    private var speedButton: TextView? = null
+    private var currentSpeed = 1.0f
     private lateinit var library: LocalLibraryRepository
     private var playback: PlaybackController? = null
     private var playerView: PlayerView? = null
@@ -90,9 +110,13 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         library = LocalLibraryRepository(applicationContext)
-        window.statusBarColor = ink
-        window.navigationBarColor = ink
-        window.decorView.systemUiVisibility = 0
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
         buildShell()
         previousScreen = savedInstanceState?.getString("previousScreen") ?: "Search"
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -131,16 +155,14 @@ class MainActivity : AppCompatActivity() {
     private fun buildShell() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(ink) }
         appBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(6), dp(12), dp(6))
-            setBackgroundColor(ink)
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(8), dp(12), dp(8)); setBackgroundColor(ink)
         }
         val mark = TextView(this).apply {
-            text = "▶"; textSize = 15f; gravity = Gravity.CENTER; setTextColor(Color.BLACK)
-            background = rounded(accent, 4); setPadding(dp(2), 0, 0, 0)
+            text = "▶"; textSize = 14f; gravity = Gravity.CENTER; setTextColor(Color.BLACK)
+            background = rounded(accent, 5); setPadding(dp(2), 0, 0, 0); contentDescription = "AyuTube"
         }
-        appBar.addView(mark, LinearLayout.LayoutParams(dp(32), dp(28)))
+        appBar.addView(mark, LinearLayout.LayoutParams(dp(30), dp(28)))
         val wordmark = TextView(this).apply {
             text = SpannableString("AyuTube").apply {
                 setSpan(ForegroundColorSpan(paper), 0, 3, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -150,49 +172,106 @@ class MainActivity : AppCompatActivity() {
             letterSpacing = -0.025f
         }
         appBar.addView(wordmark, LinearLayout.LayoutParams(0, -2, 1f))
-        appBar.addView(pill("⌕", panel2, paper) {
+        appBar.addView(iconButton(R.drawable.ic_lucide_search, "Search") {
             searchMode = "Videos"; showScreen("Search")
-        }.apply { textSize = 23f; setPadding(0, 0, 0, dp(3)) }, LinearLayout.LayoutParams(dp(42), dp(40)).apply { rightMargin = dp(8) })
+        }, LinearLayout.LayoutParams(dp(42), dp(40)).apply { rightMargin = dp(7) })
         appBar.addView(TextView(this).apply {
             text = "A"; textSize = 15f; gravity = Gravity.CENTER; setTextColor(ink)
-            background = rounded(paper, 4); setOnClickListener { showScreen("Account") }
+            background = rounded(paper, 18); setTypeface(typeface, android.graphics.Typeface.BOLD)
+            contentDescription = "You / Account"; setOnClickListener { showScreen("Account") }
         }, LinearLayout.LayoutParams(dp(34), dp(34)))
-        root.addView(appBar, LinearLayout.LayoutParams(-1, dp(54)))
+        root.addView(appBar, LinearLayout.LayoutParams(-1, dp(60)))
         root.addView(View(this).apply { setBackgroundColor(steel) }, LinearLayout.LayoutParams(-1, dp(1)))
 
         screenHost = FrameLayout(this)
         root.addView(screenHost, LinearLayout.LayoutParams(-1, 0, 1f))
 
+        miniPlayer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(7), dp(10), dp(7)); setBackgroundColor(panel)
+            visibility = View.GONE; isClickable = true; isFocusable = true
+            setOnClickListener { if (activeVideo != null) showScreen("Watch") }
+        }
+        miniThumbnail = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP; background = rounded(panel2, 3); clipToOutline = true }
+        miniPlayer!!.addView(miniThumbnail, LinearLayout.LayoutParams(dp(58), dp(34)).apply { rightMargin = dp(10) })
+        val miniCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
+        miniTitle = label("Nothing playing", 12f, paper, true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        miniSubtitle = label("AyuTube", 10f, muted, false).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0) }
+        miniCopy.addView(miniTitle); miniCopy.addView(miniSubtitle)
+        miniPlayer!!.addView(miniCopy, LinearLayout.LayoutParams(0, -2, 1f))
+        miniPlayButton = iconView(R.drawable.ic_lucide_play, accent, "Play")
+        miniPlayButton!!.setPadding(dp(8), dp(5), dp(5), dp(5))
+        miniPlayButton!!.setOnClickListener {
+            val player = playback?.player ?: return@setOnClickListener
+            if (player.isPlaying || player.playWhenReady) player.pause() else player.play()
+            updateMiniPlayer()
+        }
+        miniPlayer!!.addView(miniPlayButton, LinearLayout.LayoutParams(dp(42), dp(40)))
+        val miniClose = iconView(R.drawable.ic_lucide_x, muted, "Dismiss mini-player").apply {
+            setPadding(dp(10), dp(10), dp(7), dp(10))
+            isClickable = true; isFocusable = true
+            setOnClickListener {
+                activeVideo?.let { video -> playback?.player?.currentPosition?.div(1000L)?.let { library.updateProgress(video.id, it) } }
+                releasePlayback()
+                activeVideo = null
+                updateMiniPlayer()
+            }
+        }
+        miniPlayer!!.addView(miniClose, LinearLayout.LayoutParams(dp(38), dp(40)))
+        root.addView(miniPlayer, LinearLayout.LayoutParams(-1, dp(54)))
+        root.addView(View(this).apply { setBackgroundColor(steel) }, LinearLayout.LayoutParams(-1, dp(1)))
+
         nav = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setBackgroundColor(ink)
-            setPadding(dp(5), dp(5), dp(5), dp(4))
+            setPadding(dp(8), dp(3), dp(8), dp(4))
         }
-        val destinations = listOf("Home" to "⌂", "Search" to "⌕", "Library" to "▤", "Study" to "◷", "Account" to "●")
-        destinations.forEach { (item, glyph) ->
+        val destinations = listOf(
+            Triple("Home", "Home", R.drawable.ic_lucide_house),
+            Triple("Search", "Search", R.drawable.ic_lucide_search),
+            Triple("Library", "Library", R.drawable.ic_lucide_library),
+            Triple("Account", "You", R.drawable.ic_lucide_user_round)
+        )
+        destinations.forEach { (route, title, iconRes) ->
             val tab = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
-                setPadding(dp(2), dp(4), dp(2), dp(3)); tag = item
+                setPadding(dp(2), dp(4), dp(2), dp(3)); tag = route
                 isClickable = true; isFocusable = true
-                setOnClickListener { if (item == "Search") searchMode = "Videos"; showScreen(item) }
+                setOnClickListener { if (route == "Search") searchMode = "Videos"; showScreen(route) }
             }
-            tab.addView(TextView(this).apply { text = glyph; textSize = 21f; gravity = Gravity.CENTER; tag = "icon" },
-                LinearLayout.LayoutParams(-1, dp(25)))
-            tab.addView(TextView(this).apply { text = item; textSize = 10f; gravity = Gravity.CENTER; tag = "label" })
-            nav.addView(tab, LinearLayout.LayoutParams(0, dp(50), 1f))
+            tab.addView(iconView(iconRes, muted, title).apply { tag = "icon" },
+                LinearLayout.LayoutParams(dp(22), dp(22)).apply { bottomMargin = dp(3) })
+            tab.addView(TextView(this).apply { text = title; textSize = 10f; gravity = Gravity.CENTER; setTextColor(muted); tag = "label" })
+            nav.addView(tab, LinearLayout.LayoutParams(0, dp(48), 1f))
         }
-        root.addView(View(this).apply { setBackgroundColor(steel) }, LinearLayout.LayoutParams(-1, dp(1)))
-        root.addView(nav, LinearLayout.LayoutParams(-1, dp(60)))
+        root.addView(nav, LinearLayout.LayoutParams(-1, dp(56)))
         setContentView(root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, windowInsets ->
+            val bars = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            // Only the root absorbs left/right cutout space. The top bar grows by the
+            // status-bar inset and the bottom bar by the navigation/gesture inset.
+            view.setPadding(bars.left, 0, bars.right, 0)
+            appBar.setPadding(dp(16), dp(8) + bars.top, dp(12), dp(8))
+            appBar.layoutParams = appBar.layoutParams.apply { height = dp(60) + bars.top }
+            nav.setPadding(dp(8), dp(3), dp(8), dp(4) + bars.bottom)
+            nav.layoutParams = nav.layoutParams.apply { height = dp(56) + bars.bottom }
+            windowInsets
+        }
+        ViewCompat.requestApplyInsets(root)
     }
 
     private fun showScreen(name: String) {
         if (currentScreen == "Watch" && name != "Watch") {
             activeVideo?.let { video -> playback?.player?.currentPosition?.div(1000L)?.let { library.updateProgress(video.id, it) } }
-            releasePlayback()
+            // Keep ExoPlayer alive; detach the full-size surface and expose the compact player.
+            runCatching { playerView?.player = null }
+            playerView = null
         }
         currentScreen = name
         searchInput = null; resultsHost = null; searchStatus = null
         playerStatus = null; descriptionView = null; playerView = null; homeFeedHost = null
+        watchChannelAvatar = null; watchChannelNameView = null
         screenHost.removeAllViews()
         val body = when (name) {
             "Home" -> homeScreen()
@@ -215,36 +294,23 @@ class MainActivity : AppCompatActivity() {
             val selected = tab.tag == selectedRoute
             tab.background = rounded(if (selected) panel else ink, 4)
             for (j in 0 until tab.childCount) {
-                val child = tab.getChildAt(j) as TextView
-                child.setTextColor(if (selected) accent else muted)
-                if (child.tag == "icon") child.setTypeface(child.typeface, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+                val child = tab.getChildAt(j)
+                if (child is ImageView && child.tag == "icon") child.setColorFilter(if (selected) accent else muted)
+                if (child is TextView) child.setTextColor(if (selected) accent else muted)
             }
         }
+        updateMiniPlayer()
     }
 
     private fun homeScreen(): View = page { content ->
-        content.addView(sectionHeading("Home", "A fresh feed, ready when you are."))
+        content.addView(label("Explore", 18f, paper, true).apply { setPadding(0, 0, 0, dp(2)) })
         val chips = listOf("All" to "", "Trending" to "trending videos", "Music" to "popular music videos",
             "Gaming" to "gaming highlights", "Learning" to "math tutorials", "Podcasts" to "popular podcasts")
         content.addView(chipRail(chips.map { it.first }, 0) { index ->
             val query = chips[index].second
             if (query.isNotBlank()) searchFor(query) else showScreen("Home")
         }.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(43)).apply { topMargin = dp(12); bottomMargin = dp(14) } })
-        val hero = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            background = outlineRounded(panel, 4, accent); setPadding(dp(14), dp(13), dp(12), dp(13))
-        }
-        val heroCopy = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(label("YOUR NEXT WATCH", 10f, accent, true).apply { letterSpacing = 0.12f })
-            addView(label("Find your next rabbit hole.", 16f, paper, true).apply { setPadding(0, dp(5), 0, dp(3)) })
-            addView(label("Explore videos, music and ideas.", 11f, muted, false))
-        }
-        hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
-        hero.addView(pill("Explore  →", accent, Color.BLACK) { searchFor("trending videos") })
-        content.addView(hero)
-        content.addView(label("Recommended for you", 18f, paper, true).apply { setPadding(0, dp(22), 0, dp(4)) })
-        content.addView(label("Picked from live YouTube search", 11f, muted, false).apply { setPadding(0, 0, 0, dp(10)) })
+        content.addView(label("For you", 16f, paper, true).apply { setPadding(0, dp(8), 0, dp(9)) })
         homeFeedHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(homeFeedHost)
         loadHomeFeed(homeFeedHost!!)
@@ -253,22 +319,28 @@ class MainActivity : AppCompatActivity() {
     private fun loadHomeFeed(target: LinearLayout) {
         val token = ++homeEpoch
         target.removeAllViews()
-        target.addView(card("Loading your feed", "Finding current videos with the on-device extractor."))
+        target.addView(label("Loading your feed…", 12f, muted, false).apply { setPadding(0, dp(12), 0, dp(12)) })
         val groups = listOf("Trending now" to "trending videos", "Music picks" to "popular music videos", "Learn something" to "math science technology explainers")
+        var completedGroups = 0
+        var hasFeedContent = false
         groups.forEach { (title, query) ->
             io.execute {
                 val result = runCatching { NewPipeRepository.search(query).items.take(4) }
                 main.post {
                     if (token != homeEpoch || currentScreen != "Home" || homeFeedHost !== target) return@post
+                    completedGroups++
                     val items = result.getOrNull().orEmpty()
                     if (items.isEmpty()) {
-                        if (target.childCount == 1 && target.getChildAt(0) is LinearLayout) {
+                        if (!hasFeedContent && completedGroups == groups.size) {
                             target.removeAllViews()
                             target.addView(card("Feed unavailable", "Check the connection, or use Search to retry."))
                         }
                         return@post
                     }
-                    if (target.childCount == 1 && target.getChildAt(0) is LinearLayout) target.removeAllViews()
+                    if (!hasFeedContent) {
+                        target.removeAllViews()
+                        hasFeedContent = true
+                    }
                     target.addView(label(title, 17f, paper, true).apply { setPadding(0, dp(16), 0, dp(9)) })
                     items.forEach { target.addView(videoCard(it)) }
                     target.addView(View(this).apply { setBackgroundColor(steel) }, LinearLayout.LayoutParams(-1, dp(1)).apply { topMargin = dp(6); bottomMargin = dp(4) })
@@ -426,7 +498,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun catalogRow(title: String, subtitle: String, imageUrl: String, onClick: () -> Unit): View = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(10), dp(10), dp(10), dp(10)); background = outlineRounded(panel, 4, steel)
+        setPadding(0, dp(7), 0, dp(7)); background = rounded(ink, 0)
         isClickable = true; isFocusable = true; setOnClickListener { onClick() }
         addView(thumbnailImage(imageUrl, null), LinearLayout.LayoutParams(dp(104), dp(66)))
         val copy = LinearLayout(context).apply {
@@ -468,8 +540,21 @@ class MainActivity : AppCompatActivity() {
         }
         head.addView(headingCopy, LinearLayout.LayoutParams(0, -2, 1f))
         cover.addView(head)
-        val statusView = label("Loading videos…", 11f, muted, false).apply { setPadding(0, dp(12), 0, dp(8)) }
+        val statusView = label("Loading videos…", 12f, muted, false).apply {
+            setPadding(0, dp(12), 0, dp(2)); maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        var channelDescriptionExpanded = false
+        val aboutToggle = label("More", 12f, accent, true).apply {
+            visibility = View.GONE; gravity = Gravity.END; setPadding(0, dp(6), 0, dp(8))
+            setOnClickListener {
+                channelDescriptionExpanded = !channelDescriptionExpanded
+                statusView.maxLines = if (channelDescriptionExpanded) Int.MAX_VALUE else 3
+                statusView.ellipsize = if (channelDescriptionExpanded) null else android.text.TextUtils.TruncateAt.END
+                text = if (channelDescriptionExpanded) "Less" else "More"
+            }
+        }
         cover.addView(statusView)
+        cover.addView(aboutToggle)
         cover.addView(pill("Search this channel", accent, Color.BLACK) {
             val name = headingCopy.getChildAt(0) as TextView
             searchFor(name.text.toString())
@@ -488,7 +573,11 @@ class MainActivity : AppCompatActivity() {
                     (headingCopy.getChildAt(1) as TextView).text = (if (item.verified) "✓ Verified  ·  " else "") +
                         (item.subscribers.takeIf { it >= 0 }?.let { compactCount(it) + " subscribers" } ?: "YouTube channel")
                     loadThumbnail(avatar, item.thumbnailUrl, null)
-                    statusView.text = item.description.ifBlank { "Latest videos from this channel." }.take(900)
+                    val channelAbout = item.description.ifBlank { "Latest videos from this channel." }.take(12000)
+                    statusView.text = channelAbout
+                    statusView.maxLines = if (channelDescriptionExpanded) Int.MAX_VALUE else 3
+                    statusView.ellipsize = if (channelDescriptionExpanded) null else android.text.TextUtils.TruncateAt.END
+                    aboutToggle.visibility = if (channelAbout.length > 140) View.VISIBLE else View.GONE
                     if (details.videos.isEmpty()) list.addView(card("No videos available", "This channel did not expose a video tab."))
                     details.videos.forEach { list.addView(videoCard(it)) }
                 }
@@ -581,11 +670,7 @@ class MainActivity : AppCompatActivity() {
         val row = LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP; setPadding(dp(2), dp(10), 0, 0)
         }
-        val avatar = TextView(this@MainActivity).apply {
-            text = video.channelName.firstOrNull()?.uppercaseChar()?.toString() ?: "▶"
-            textSize = 14f; gravity = Gravity.CENTER; setTextColor(paper); background = rounded(steel, 3)
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-        }
+        val avatar = channelAvatar(video.channelName, video.channelThumbnailUrl, 35)
         row.addView(avatar, LinearLayout.LayoutParams(dp(35), dp(35)).apply { rightMargin = dp(10) })
         val copy = LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.VERTICAL
@@ -596,11 +681,10 @@ class MainActivity : AppCompatActivity() {
             addView(meta)
         }
         row.addView(copy, LinearLayout.LayoutParams(0, -2, 1f))
-        val more = TextView(this@MainActivity).apply {
-            text = "⋮"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(muted); setPadding(dp(5), 0, dp(3), 0)
-            setOnClickListener { videoActions(video) }
+        val more = iconView(R.drawable.ic_lucide_more_vertical, muted, "More video actions").apply {
+            setPadding(dp(5), dp(4), dp(3), dp(4)); setOnClickListener { videoActions(video) }
         }
-        row.addView(more, LinearLayout.LayoutParams(dp(28), dp(34)))
+        row.addView(more, LinearLayout.LayoutParams(dp(30), dp(36)))
         addView(row)
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(5) }
     }
@@ -646,7 +730,8 @@ class MainActivity : AppCompatActivity() {
         thumbnailCache.get(url)?.let { target.setImageBitmap(it); return }
         imageIo.execute {
             val bitmap = try {
-                thumbnailClient.newCall(Request.Builder().url(url).header("User-Agent", "Mozilla/5.0 AyuTube Android").build()).execute().use { response ->
+                thumbnailClient.newCall(Request.Builder().url(url).header("User-Agent", "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
+                    .header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8").build()).execute().use { response ->
                     if (!response.isSuccessful) null else {
                         val bytes = response.body?.bytes()
                         if (bytes == null || bytes.size > 3 * 1024 * 1024) null else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
@@ -662,6 +747,9 @@ class MainActivity : AppCompatActivity() {
         previousScreen = currentScreen
         releasePlayback()
         activeVideo = video
+        qualityOptions = emptyList(); autoQuality = null; selectedQuality = null
+        descriptionContent = ""; descriptionExpanded = false
+        currentSpeed = 1.0f; speedButton?.text = "1×"; qualityButton?.text = "Auto"
         showScreen("Watch")
         val token = ++watchEpoch
         playerStatus?.text = "Getting video streams from YouTube…"
@@ -670,8 +758,24 @@ class MainActivity : AppCompatActivity() {
                 val details = NewPipeRepository.details(video)
                 main.post {
                     if (token != watchEpoch || currentScreen != "Watch" || activeVideo?.id != video.id) return@post
+                    qualityOptions = details.qualityOptions
+                    autoQuality = details.qualityOptions.filter { it.height in 1..720 }.maxByOrNull { it.height }
+                        ?: details.qualityOptions.firstOrNull()
+                    selectedQuality = autoQuality
+                    qualityButton?.text = selectedQuality?.label ?: "Auto"
+                    val resolvedVideo = details.item
+                    activeVideo = resolvedVideo
+                    watchChannelNameView?.text = resolvedVideo.channelName.ifBlank { "YouTube channel" }
+                    watchChannelAvatar?.let { frame ->
+                        (frame.getChildAt(1) as? ImageView)?.let { avatarImage ->
+                            loadThumbnail(avatarImage, resolvedVideo.channelThumbnailUrl, null)
+                        }
+                    }
+                    miniTitle?.text = resolvedVideo.title
+                    miniSubtitle?.text = resolvedVideo.channelName.ifBlank { "AyuTube" }
+                    miniThumbnail?.let { loadThumbnail(it, resolvedVideo.thumbnailUrl, resolvedVideo.id) }
                     playerStatus?.text = if (details.videoUrl != null) "Preparing video…" else "Trying audio stream…"
-                    descriptionView?.text = details.description.ifBlank { "No description available." }
+                    renderDescription(details.description.ifBlank { "No description available." })
                     val uri = details.videoUrl ?: details.audioUrl
                     if (uri.isNullOrBlank()) {
                         playerStatus?.text = "No compatible progressive stream was found. Try again later."
@@ -683,8 +787,9 @@ class MainActivity : AppCompatActivity() {
                     controller.player.addListener(object : Player.Listener {
                         override fun onIsPlayingChanged(isPlaying: Boolean) {
                             if (currentScreen == "Watch" && activeVideo?.id == video.id) {
-                                playerStatus?.text = if (isPlaying) "Now playing" else "Paused / buffering"
+                                playerStatus?.text = if (isPlaying) "Now playing" else "Paused"
                             }
+                            updateMiniPlayer()
                         }
                         override fun onPlayerError(error: PlaybackException) {
                             if (currentScreen == "Watch") {
@@ -698,6 +803,7 @@ class MainActivity : AppCompatActivity() {
                         controller.play(uri, resumeSeconds * 1000L)
                         library.recordHistory(details.item, resumeSeconds)
                         activeVideo = details.item
+                        updateMiniPlayer()
                     } catch (error: Throwable) {
                         playerStatus?.text = "Could not start stream: " +
                             (error.message?.take(120) ?: "unsupported stream")
@@ -714,73 +820,79 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun watchScreen(video: VideoItem): View = page { content ->
-        content.addView(pill("← Back", panel2, paper) { showScreen(previousScreen) }.apply {
-            layoutParams = LinearLayout.LayoutParams(-1, dp(38))
-        })
-        val playerFrame = FrameLayout(this).apply {
-            background = rounded(Color.BLACK, 3); clipToOutline = true
-        }
+        val playerFrame = FrameLayout(this).apply { background = rounded(Color.BLACK, 3); clipToOutline = true }
         val view = PlayerView(this).apply {
             useController = true; setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
             setBackgroundColor(Color.BLACK); resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            player = playback?.player
         }
         playerView = view
         playerFrame.addView(view, FrameLayout.LayoutParams(-1, -1))
-        content.addView(playerFrame, LinearLayout.LayoutParams(-1, dp(206)).apply { topMargin = dp(12); bottomMargin = dp(13) })
-        content.addView(label(video.title, 19f, paper, true).apply { setPadding(0, dp(3), 0, dp(7)) })
+        content.addView(playerFrame, LinearLayout.LayoutParams(-1, dp(208)).apply { bottomMargin = dp(10) })
+        content.addView(label(video.title, 17f, paper, true).apply {
+            maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(0, dp(2), 0, dp(5))
+        })
         content.addView(label(listOf(video.viewsLabel, video.durationLabel).filter { it.isNotBlank() }.joinToString(" · "), 11f, muted, false))
-        playerStatus = label("Getting the best available stream…", 11f, accent, false).apply { setPadding(0, dp(9), 0, dp(11)) }
+        playerStatus = label(if (playback != null) { if (playback?.player?.isPlaying == true) "Now playing" else "Paused" } else "Getting the best available stream…", 10f, dim, false)
+            .apply { setPadding(0, dp(6), 0, dp(9)) }
         content.addView(playerStatus)
 
-        val ownerRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            background = outlineRounded(panel, 4, steel); setPadding(dp(10), dp(9), dp(10), dp(9))
-        }
-        val avatar = TextView(this).apply {
-            text = video.channelName.firstOrNull()?.uppercaseChar()?.toString() ?: "▶"
-            textSize = 15f; gravity = Gravity.CENTER; setTextColor(paper); background = rounded(steel, 3)
-        }
-        ownerRow.addView(avatar, LinearLayout.LayoutParams(dp(38), dp(38)).apply { rightMargin = dp(10) })
-        ownerRow.addView(LinearLayout(this).apply {
+        val playerTools = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        playerTools.addView(controlChip(R.drawable.ic_lucide_rotate_ccw, "10s") { seekBy(-10_000L) }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(4) })
+        val speedChip = controlChip(R.drawable.ic_lucide_gauge, if (currentSpeed == 1f) "1×" else "${currentSpeed}×") { choosePlaybackSpeed() }
+        speedButton = (speedChip as LinearLayout).getChildAt(1) as TextView
+        playerTools.addView(speedChip, LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(2); rightMargin = dp(2) })
+        val qualityChip = controlChip(R.drawable.ic_lucide_settings_2, selectedQuality?.label ?: "Auto") { choosePlaybackQuality() }
+        qualityButton = (qualityChip as LinearLayout).getChildAt(1) as TextView
+        playerTools.addView(qualityChip, LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(2); rightMargin = dp(2) })
+        playerTools.addView(controlChip(R.drawable.ic_lucide_rotate_cw, "10s") { seekBy(10_000L) }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(4) })
+        content.addView(playerTools, LinearLayout.LayoutParams(-1, dp(42)).apply { bottomMargin = dp(12) })
+
+        val ownerRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(5), 0, dp(8)) }
+        watchChannelAvatar = channelAvatar(video.channelName, video.channelThumbnailUrl, 38) as FrameLayout
+        ownerRow.addView(watchChannelAvatar, LinearLayout.LayoutParams(dp(38), dp(38)).apply { rightMargin = dp(10) })
+        val channelCopy = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(label(video.channelName.ifBlank { "YouTube channel" }, 13f, paper, true))
-            addView(label("Video creator", 10f, muted, false).apply { setPadding(0, dp(4), 0, 0) })
-        }, LinearLayout.LayoutParams(0, -2, 1f))
+            watchChannelNameView = label(video.channelName.ifBlank { "YouTube channel" }, 13f, paper, true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+            addView(watchChannelNameView)
+            addView(label("Creator", 10f, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+        }
+        ownerRow.addView(channelCopy, LinearLayout.LayoutParams(0, -2, 1f))
         ownerRow.addView(pill("Channel", panel2, paper) {
             if (video.channelUrl.isNotBlank()) openChannel(video.channelUrl) else searchFor(video.channelName)
         })
         content.addView(ownerRow)
 
-        val actionRow1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        var likedButton: TextView? = null
-        val likeAction: () -> Unit = {
+        val actions = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER }
+        val actionRail = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        actionRail.addView(iconTextButton(R.drawable.ic_lucide_heart, if (library.isLiked(video.id)) "Liked" else "Like") {
             val liked = library.toggleLike(activeVideo ?: video)
-            likedButton?.text = if (liked) "♥  Liked" else "♡  Like"
             Toast.makeText(this@MainActivity, if (liked) "Added to liked videos" else "Removed from liked videos", Toast.LENGTH_SHORT).show()
-        }
-        val button = pill(if (library.isLiked(video.id)) "♥  Liked" else "♡  Like", panel2, paper, likeAction)
-        likedButton = button
-        actionRow1.addView(button, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(5) })
-        actionRow1.addView(pill("＋  Watch later", panel2, paper) {
+        }, LinearLayout.LayoutParams(-2, dp(38)).apply { rightMargin = dp(7) })
+        actionRail.addView(iconTextButton(R.drawable.ic_lucide_bookmark, "Save") {
             val added = library.addWatchLater(activeVideo ?: video)
             Toast.makeText(this@MainActivity, if (added) "Saved to Watch Later" else "Already saved", Toast.LENGTH_SHORT).show()
-        }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(5) })
-        content.addView(actionRow1, LinearLayout.LayoutParams(-1, dp(42)).apply { topMargin = dp(10) })
-        val actionRow2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        actionRow2.addView(pill("Add to playlist", panel2, paper) { choosePlaylist(video) },
-            LinearLayout.LayoutParams(0, dp(40), 1f).apply { rightMargin = dp(5) })
-        actionRow2.addView(pill("Video note", panel2, paper) { editVideoNote(video) },
-            LinearLayout.LayoutParams(0, dp(40), 1f).apply { leftMargin = dp(5) })
-        actionRow2.addView(pill("Share", accent, Color.BLACK) { shareVideo(video) },
-            LinearLayout.LayoutParams(0, dp(40), 0.7f).apply { leftMargin = dp(5) })
-        content.addView(actionRow2, LinearLayout.LayoutParams(-1, dp(40)).apply { topMargin = dp(7) })
+        }, LinearLayout.LayoutParams(-2, dp(38)).apply { rightMargin = dp(7) })
+        actionRail.addView(iconTextButton(R.drawable.ic_lucide_share_2, "Share") { shareVideo(activeVideo ?: video) },
+            LinearLayout.LayoutParams(-2, dp(38)).apply { rightMargin = dp(7) })
+        actionRail.addView(iconTextButton(R.drawable.ic_lucide_more_vertical, "More") { videoActions(activeVideo ?: video) }, LinearLayout.LayoutParams(-2, dp(38)))
+        actions.addView(actionRail)
+        content.addView(actions, LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(4); bottomMargin = dp(8) })
 
-        content.addView(label("Description", 16f, paper, true).apply { setPadding(0, dp(20), 0, dp(8)) })
+        val descriptionHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        descriptionHeader.addView(label("Description", 15f, paper, true), LinearLayout.LayoutParams(0, -2, 1f))
+        descriptionToggleView = label("More", 12f, accent, true).apply {
+            gravity = Gravity.END; setPadding(dp(10), dp(6), dp(2), dp(6))
+            setOnClickListener { descriptionExpanded = !descriptionExpanded; renderDescription(descriptionContent) }
+        }
+        descriptionHeader.addView(descriptionToggleView)
+        content.addView(descriptionHeader, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(7); bottomMargin = dp(5) })
         descriptionView = label("Loading description…", 12f, muted, false).apply {
-            background = outlineRounded(panel, 4, steel); setPadding(dp(12), dp(12), dp(12), dp(12))
+            maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END; setLineSpacing(dp(2).toFloat(), 1f)
         }
         content.addView(descriptionView)
-        content.addView(label("Up next", 18f, paper, true).apply { setPadding(0, dp(22), 0, dp(8)) })
+        if (descriptionContent.isNotBlank()) renderDescription(descriptionContent)
+        content.addView(label("Up next", 16f, paper, true).apply { setPadding(0, dp(20), 0, dp(7)) })
         val relatedHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(relatedHost)
         loadRelatedVideos(video, relatedHost)
@@ -807,6 +919,7 @@ class MainActivity : AppCompatActivity() {
         runCatching { playback?.release() }
         playback = null
         playerView = null
+        updateMiniPlayer()
     }
 
     private fun libraryScreen(): View = page { content ->
@@ -1020,6 +1133,115 @@ class MainActivity : AppCompatActivity() {
         content.addView(label(title, 27f, paper, true))
         content.addView(label(subtitle, 15f, paper, false).apply { setPadding(0, dp(8), 0, dp(16)) })
         content.addView(card("Native migration", detail))
+    }
+
+    private fun iconView(resource: Int, tint: Int, description: String): ImageView = ImageView(this).apply {
+        setImageResource(resource); setColorFilter(tint); contentDescription = description; scaleType = ImageView.ScaleType.FIT_CENTER
+    }
+
+    private fun iconButton(resource: Int, description: String, action: () -> Unit): ImageView = iconView(resource, paper, description).apply {
+        background = rounded(panel2, 7); setPadding(dp(10), dp(9), dp(10), dp(9))
+        isClickable = true; isFocusable = true; setOnClickListener { action() }
+    }
+
+    private fun controlChip(resource: Int, title: String, action: () -> Unit): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+        background = rounded(panel2, 8); setPadding(dp(6), dp(5), dp(6), dp(5))
+        isClickable = true; isFocusable = true; contentDescription = title
+        addView(iconView(resource, paper, title), LinearLayout.LayoutParams(dp(16), dp(16)))
+        addView(label(title, 10f, paper, true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END },
+            LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(4) })
+        setOnClickListener { action() }
+    }
+
+    private fun iconTextButton(resource: Int, title: String, action: () -> Unit): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+        background = rounded(panel2, 18); setPadding(dp(12), dp(7), dp(12), dp(7))
+        isClickable = true; isFocusable = true; contentDescription = title
+        addView(iconView(resource, paper, title), LinearLayout.LayoutParams(dp(16), dp(16)))
+        addView(label(title, 11f, paper, true), LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(6) })
+        setOnClickListener { action() }
+    }
+
+    private fun channelAvatar(name: String, url: String, sizeDp: Int): View = FrameLayout(this).apply {
+        background = roundCircle(steel); clipToOutline = true
+        addView(TextView(this@MainActivity).apply {
+            text = name.firstOrNull()?.uppercaseChar()?.toString() ?: "▶"
+            textSize = if (sizeDp >= 38) 13f else 11f; gravity = Gravity.CENTER; setTextColor(paper)
+            background = roundCircle(steel); setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }, FrameLayout.LayoutParams(-1, -1))
+        val image = ImageView(this@MainActivity).apply { scaleType = ImageView.ScaleType.CENTER_CROP; contentDescription = "$name channel avatar" }
+        addView(image, FrameLayout.LayoutParams(-1, -1))
+        loadThumbnail(image, url, null)
+    }
+
+    private fun roundCircle(color: Int) = android.graphics.drawable.GradientDrawable().apply {
+        shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(color)
+    }
+
+    private fun updateMiniPlayer() {
+        val host = miniPlayer ?: return
+        val video = activeVideo
+        val player = playback?.player
+        val show = currentScreen != "Watch" && video != null && player != null
+        host.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show || video == null || player == null) return
+        miniTitle?.text = video.title
+        miniSubtitle?.text = (if (player.isPlaying) "Playing" else "Paused") + " · " + video.channelName.ifBlank { "AyuTube" }
+        miniPlayButton?.setImageResource(if (player.isPlaying || player.playWhenReady) R.drawable.ic_lucide_pause else R.drawable.ic_lucide_play)
+        miniPlayButton?.setColorFilter(accent)
+        if (video.thumbnailUrl.isNotBlank() && miniThumbnail?.tag != video.thumbnailUrl) miniThumbnail?.let { loadThumbnail(it, video.thumbnailUrl, video.id) }
+    }
+
+    private fun seekBy(deltaMs: Long) {
+        val player = playback?.player ?: run { Toast.makeText(this, "Wait for the stream to load", Toast.LENGTH_SHORT).show(); return }
+        val duration = player.duration.takeIf { it > 0L } ?: Long.MAX_VALUE
+        player.seekTo((player.currentPosition + deltaMs).coerceIn(0L, duration))
+    }
+
+    private fun choosePlaybackSpeed() {
+        val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
+        val labels = speeds.map { if (it == 1f) "Normal · 1×" else "${it}×" }.toTypedArray()
+        val selected = speeds.indexOf(currentSpeed).coerceAtLeast(0)
+        AlertDialog.Builder(this).setTitle("Playback speed").setSingleChoiceItems(labels, selected) { dialog, which ->
+            currentSpeed = speeds[which]
+            runCatching { playback?.setSpeed(currentSpeed) }
+            speedButton?.text = if (currentSpeed == 1f) "1×" else "${currentSpeed}×"
+            dialog.dismiss()
+        }.setNegativeButton("Cancel", null).show()
+    }
+
+    private fun choosePlaybackQuality() {
+        if (qualityOptions.isEmpty()) {
+            Toast.makeText(this, "No alternate compatible quality was found for this stream", Toast.LENGTH_SHORT).show(); return
+        }
+        val options = listOf("Auto · Recommended") + qualityOptions.map { it.label }
+        AlertDialog.Builder(this).setTitle("Video quality").setItems(options.toTypedArray()) { _, which ->
+            val choice = if (which == 0) autoQuality else qualityOptions.getOrNull(which - 1)
+            if (choice != null) changePlaybackQuality(choice)
+        }.show()
+    }
+
+    private fun changePlaybackQuality(option: NewPipeRepository.PlaybackStream) {
+        val controller = playback ?: return
+        val player = controller.player
+        val position = player.currentPosition.coerceAtLeast(0L)
+        val resume = player.playWhenReady
+        selectedQuality = option
+        qualityButton?.text = option.label
+        try { controller.play(option.url, position, resume) }
+        catch (error: Throwable) { Toast.makeText(this, "Could not change quality: ${error.message?.take(90) ?: "stream error"}", Toast.LENGTH_LONG).show() }
+    }
+
+    private fun renderDescription(raw: String) {
+        descriptionContent = raw.trim().ifBlank { "No description available." }.take(12000)
+        val view = descriptionView ?: return
+        val needsToggle = descriptionContent.length > 170
+        view.text = descriptionContent
+        view.maxLines = if (descriptionExpanded) Int.MAX_VALUE else 3
+        view.ellipsize = if (descriptionExpanded) null else android.text.TextUtils.TruncateAt.END
+        descriptionToggleView?.visibility = if (needsToggle) View.VISIBLE else View.GONE
+        descriptionToggleView?.text = if (descriptionExpanded) "Less" else "More"
     }
 
     private fun status(message: String) { searchStatus?.text = message }

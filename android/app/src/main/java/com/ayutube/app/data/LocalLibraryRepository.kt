@@ -249,6 +249,7 @@ class LocalLibraryRepository(context: Context) {
         .put("id", video.id.take(30)).put("title", video.title.take(500))
         .put("url", video.url.take(2000)).put("channel", video.channelName.take(300))
         .put("channel_url", video.channelUrl.take(2000)).put("thumbnail", video.thumbnailUrl.take(2000))
+        .put("channel_thumbnail", video.channelThumbnailUrl.take(2000))
         .put("duration", video.durationSeconds.coerceAtLeast(0L)).put("views", video.views)
         .put("short", video.isShort)
 
@@ -262,6 +263,7 @@ class LocalLibraryRepository(context: Context) {
             channelName = value.optString("channel", "").take(300),
             channelUrl = value.optString("channel_url", "").take(2000),
             thumbnailUrl = value.optString("thumbnail", "").take(2000),
+            channelThumbnailUrl = value.optString("channel_thumbnail", "").take(2000),
             durationSeconds = value.optLong("duration", 0L).coerceAtLeast(0L),
             views = value.optLong("views", -1L),
             isShort = value.optBoolean("short", false)
