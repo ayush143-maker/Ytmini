@@ -521,6 +521,8 @@ public class AyuExtractorPlugin extends Plugin {
             out.put("avatarUrl", bestImage(info.getAvatars()));
             out.put("verified", info.isVerified());
             out.put("subscriberCount", info.getSubscriberCount());
+            out.put("banner", bestImage(info.getBanners()));
+            out.put("description", info.getDescription());
 
             final ListLinkHandler tab = findTab(info, ChannelTabs.VIDEOS);
 

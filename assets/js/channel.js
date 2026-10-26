@@ -304,11 +304,37 @@
 
     header.append(text);
 
+    if (data.banner) {
+      const banner = el("img", "channel-banner");
+
+      banner.alt = "";
+      banner.decoding = "async";
+      banner.src = data.banner;
+      banner.addEventListener("error", () => banner.remove(), { once: true });
+      header.before(banner);
+    }
+
+    if (data.description) {
+      const about = el("div", "channel-about");
+      const copy = el("p", "channel-about-text", data.description);
+      const toggle = el("button", "channel-about-toggle", "More");
+
+      toggle.type = "button";
+      toggle.addEventListener("click", () => {
+        const open = about.classList.toggle("is-open");
+
+        toggle.textContent = open ? "Less" : "More";
+      });
+      about.append(copy, toggle);
+      header.after(about);
+    }
+
     // Actions
     const videoRef = {
       channelId: channel.id,
       uploaderName: channel.name,
-      channel: channel.name
+      channel: channel.name,
+      avatar: data.avatar || ""
     };
 
     const actions = el("div", "channel-actions");

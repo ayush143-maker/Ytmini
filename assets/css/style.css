@@ -3121,3 +3121,54 @@ body.has-now-playing .stage {
   height: 24px;
   font-size: 12px;
 }
+
+/* 34. Channel page ---------------------------------------------------------- */
+
+.channel-banner {
+  display: block;
+  width: calc(100% + var(--gutter) * 2);
+  max-width: none;
+  aspect-ratio: 16 / 5;
+  margin: 12px calc(var(--gutter) * -1) 4px;
+  object-fit: cover;
+}
+
+.channel-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.channel-about {
+  margin-top: 10px;
+  color: var(--fog);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.channel-about-text {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.channel-about.is-open .channel-about-text {
+  display: block;
+}
+
+.channel-about-toggle {
+  margin-top: 4px;
+  color: var(--paper);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.channel-name {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}

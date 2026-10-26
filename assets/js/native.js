@@ -326,6 +326,8 @@
       id,
       name,
       avatar: secureUrl(data.avatarUrl),
+      banner: secureUrl(data.banner),
+      description: text(data.description, 1500),
       verified: data.verified === true,
       subscribers: wholeNumber(data.subscriberCount),
       items,
