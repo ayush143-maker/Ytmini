@@ -42,7 +42,7 @@ object NewPipeRepository {
     private val downloader = object : Downloader() {
         @Throws(IOException::class, ReCaptchaException::class)
         override fun execute(request: Request): Response {
-            val body = request.dataToSend()?.let { RequestBody.create(it, null as MediaType?) }
+            val body = request.dataToSend()?.let { RequestBody.create(null as MediaType?, it) }
             val builder = okhttp3.Request.Builder()
                 .url(request.url())
                 .method(request.httpMethod(), body)

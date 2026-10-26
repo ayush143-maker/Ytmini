@@ -174,7 +174,7 @@ class MainActivity : AppCompatActivity() {
             setHintTextColor(muted)
             setTextColor(paper)
             textSize = 14f
-            singleLine = true
+            isSingleLine = true
             imeOptions = EditorInfo.IME_ACTION_SEARCH
             setPadding(dp(13), dp(11), dp(13), dp(11))
             background = rounded(panel2, 11)
@@ -478,7 +478,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(28), dp(20), dp(28))
         }
-        scroll.addView(content, ScrollView.LayoutParams(-1, -2))
+        scroll.addView(content, FrameLayout.LayoutParams(-1, -2))
         build(content)
         return scroll
     }
