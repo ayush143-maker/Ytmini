@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.Image
 import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.channel.ChannelInfo
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
@@ -79,5 +80,10 @@ object ExtractorRepository {
 
     suspend fun streams(id: String): StreamInfo = withContext(Dispatchers.IO) {
         StreamInfo.getInfo("https://www.youtube.com/watch?v=$id")
+    }
+
+    /** Just the channel's picture, for cards that arrive without one. */
+    suspend fun channelAvatar(id: String): String = withContext(Dispatchers.IO) {
+        bestImage(ChannelInfo.getInfo("https://www.youtube.com/channel/$id").avatars)
     }
 }
