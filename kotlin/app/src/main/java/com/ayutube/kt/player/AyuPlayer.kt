@@ -3,6 +3,7 @@ package com.ayutube.kt.player
 import android.content.Context
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
@@ -13,14 +14,14 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import okhttp3.OkHttpClient
+import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.Stream
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.VideoStream
 
-enum class StreamMode { ADAPTIVE, MUXED }
-
-data class ChosenStream(val label: String, val source: MediaSource)
+/** One entry in the quality menu. */
+data class QualityOption(val label: String, val video: VideoStream, val muxed: Boolean)
 
 /** ExoPlayer wrapper that plays what NewPipeExtractor found. */
 @OptIn(UnstableApi::class)
@@ -44,66 +45,66 @@ class AyuPlayer(context: Context) {
 
     private fun isMp4(stream: Stream) = stream.format?.mimeType?.contains("mp4") == true
 
-    private fun progressiveSource(url: String): MediaSource =
+    private fun source(url: String): MediaSource =
         ProgressiveMediaSource.Factory(dataFactory).createMediaSource(MediaItem.fromUri(url))
 
-    fun choose(info: StreamInfo, mode: StreamMode): ChosenStream? {
-        val muxed = info.videoStreams.filter { progressive(it) }.maxByOrNull { it.height }
+    /** Quality choices, best first: adaptive (separate audio) then the muxed fallback. */
+    fun qualities(info: StreamInfo): List<QualityOption> {
+        val adaptive = info.videoOnlyStreams
+            .filter { progressive(it) && it.height > 0 }
+            .groupBy { it.height }
+            .map { (height, streams) ->
+                val best = streams.sortedWith(
+                    compareByDescending<VideoStream> { isMp4(it) }.thenByDescending { it.bitrate }
+                ).first()
 
-        val audioAll = info.audioStreams.filter { progressive(it) }
-        val audio = audioAll.filter { isMp4(it) }.ifEmpty { audioAll }.maxByOrNull { it.averageBitrate }
+                QualityOption("${height}p", best, false)
+            }
+            .sortedByDescending { it.video.height }
 
-        val video = info.videoOnlyStreams
-            .filter { progressive(it) && it.height in 1..720 }
-            .sortedWith(
-                compareByDescending<VideoStream> { isMp4(it) }.thenByDescending { it.height }
-            )
-            .firstOrNull()
+        val muxed = info.videoStreams
+            .filter { progressive(it) && it.height > 0 }
+            .maxByOrNull { it.height }
+            ?.let { QualityOption("${it.height}p with audio", it, true) }
 
-        if (mode == StreamMode.ADAPTIVE && video != null && audio != null) {
-            return ChosenStream(
-                "adaptive ${video.height}p + audio ${audio.averageBitrate}k",
-                MergingMediaSource(progressiveSource(video.content), progressiveSource(audio.content))
-            )
-        }
-
-        if (muxed != null) {
-            return ChosenStream("muxed ${muxed.height}p", progressiveSource(muxed.content))
-        }
-
-        val hls = info.hlsUrl
-        if (!hls.isNullOrEmpty()) {
-            return ChosenStream(
-                "hls",
-                HlsMediaSource.Factory(dataFactory).createMediaSource(MediaItem.fromUri(hls))
-            )
-        }
-
-        return null
+        return adaptive + listOfNotNull(muxed)
     }
 
-    fun prepare(info: StreamInfo, mode: StreamMode, positionMs: Long): ChosenStream? {
-        val chosen = choose(info, mode) ?: return null
+    fun audios(info: StreamInfo): List<AudioStream> =
+        info.audioStreams.filter { progressive(it) }.sortedByDescending { it.averageBitrate }
 
-        exo.setMediaSource(chosen.source, positionMs)
+    /** Highest adaptive quality up to 720p, else the muxed stream, else the first. */
+    fun defaultQuality(options: List<QualityOption>): QualityOption? =
+        options.filter { !it.muxed && it.video.height <= 720 }.maxByOrNull { it.video.height }
+            ?: options.firstOrNull { it.muxed }
+            ?: options.firstOrNull()
+
+    fun defaultAudio(audios: List<AudioStream>): AudioStream? =
+        audios.filter { isMp4(it) }.ifEmpty { audios }.maxByOrNull { it.averageBitrate }
+
+    /** Plays [option] (with [audio] unless it is muxed) from [positionMs]. */
+    fun play(option: QualityOption, audio: AudioStream?, positionMs: Long) {
+        val video = source(option.video.content)
+
+        val media = if (option.muxed || audio == null) video
+        else MergingMediaSource(video, source(audio.content))
+
+        exo.setMediaSource(media, positionMs)
         exo.prepare()
         exo.playWhenReady = true
-
-        return chosen
     }
 
-    /** One line of diagnostics for the on-screen readout. */
-    fun snapshot(): String {
-        val state = when (exo.playbackState) {
-            Player.STATE_BUFFERING -> "buffering"
-            Player.STATE_READY -> if (exo.isPlaying) "playing" else "paused"
-            Player.STATE_ENDED -> "ended"
-            else -> "idle"
-        }
-
-        return "$state  ${exo.currentPosition / 1000}s / ${exo.duration.coerceAtLeast(0) / 1000}s" +
-            "  buffered ${exo.bufferedPosition / 1000}s"
+    fun playHls(url: String) {
+        exo.setMediaSource(HlsMediaSource.Factory(dataFactory).createMediaSource(MediaItem.fromUri(url)))
+        exo.prepare()
+        exo.playWhenReady = true
     }
+
+    fun setSpeed(speed: Float) {
+        exo.playbackParameters = PlaybackParameters(speed)
+    }
+
+    val isEnded get() = exo.playbackState == Player.STATE_ENDED
 
     fun release() {
         exo.release()
