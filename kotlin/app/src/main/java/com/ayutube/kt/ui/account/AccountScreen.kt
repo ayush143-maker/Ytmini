@@ -88,21 +88,23 @@ fun AccountScreen() {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 20.dp)
     ) {
-        Text("Account", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text("Account", fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
 
         Panel {
             PanelTitle("Your data")
             Text(
                 "Stored only on this phone. There is no account and nothing is synced.",
-                color = Ay.Fog
+                color = Ay.Fog,
+                fontSize = 13.sp
             )
             stats?.let {
                 Text(
                     "${it.history} watched \u00B7 ${it.playlists} playlists \u00B7 ${it.watchLater} watch later \u00B7 " +
                         "${it.likes} liked \u00B7 ${it.following} following",
                     color = Ay.Fog,
-                    modifier = Modifier.padding(top = 8.dp)
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 6.dp)
                 )
             }
             Spacer(Modifier.height(14.dp))

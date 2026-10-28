@@ -134,9 +134,9 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
         Column(Modifier.padding(horizontal = 16.dp)) {
             Text(
                 "Library",
-                fontSize = 26.sp,
+                fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 20.dp, bottom = 4.dp)
+                modifier = Modifier.padding(top = 16.dp, bottom = 2.dp)
             )
             TabStrip(SECTIONS, section, { section = it; openPlaylist = null })
         }
@@ -171,7 +171,7 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
                                         ) {
                                             Box(Modifier.align(Alignment.TopEnd)) { BlockShape(kind) }
                                             Column(Modifier.align(Alignment.BottomStart)) {
-                                                Text(title, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = Ay.Bone)
+                                                Text(title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = Ay.Bone)
                                                 Text(
                                                     "$count ${if (count == 1) "item" else "items"}",
                                                     fontSize = 12.sp,

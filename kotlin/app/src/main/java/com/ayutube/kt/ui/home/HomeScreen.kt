@@ -22,13 +22,18 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ayutube.kt.data.VideoItem
-import com.ayutube.kt.ui.components.SearchField
-import com.ayutube.kt.ui.components.TabStrip
+import com.ayutube.kt.ui.components.AyButton
+import com.ayutube.kt.ui.components.TopicChips
 import com.ayutube.kt.ui.components.VideoCard
 import com.ayutube.kt.ui.theme.Ay
 
 @Composable
-fun ExploreScreen(onOpen: (VideoItem) -> Unit, vm: ExploreViewModel = viewModel()) {
+fun HomeScreen(
+    onOpen: (VideoItem) -> Unit,
+    onChannel: (VideoItem) -> Unit,
+    onMore: (VideoItem) -> Unit,
+    vm: HomeViewModel = viewModel()
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
 
@@ -44,19 +49,13 @@ fun ExploreScreen(onOpen: (VideoItem) -> Unit, vm: ExploreViewModel = viewModel(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(horizontal = 16.dp)) {
-            Box(Modifier.padding(top = 20.dp, bottom = 4.dp)) {
-                SearchField(
-                    value = state.query,
-                    onValueChange = vm::onQueryChange,
-                    onSearch = vm::search
-                )
-            }
-            TabStrip(labels = vm.labels, selected = state.category, onSelect = vm::selectCategory)
-        }
+        TopicChips(vm.chips, state.chip, vm::select)
 
         state.error?.let {
-            Text(it, color = Ay.Pink, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
+            Column(Modifier.padding(16.dp)) {
+                Text(it, color = Ay.Pink, fontSize = 13.sp, modifier = Modifier.padding(bottom = 10.dp))
+                AyButton("Try again", primary = true, onClick = vm::refresh)
+            }
         }
 
         if (state.loading) {
@@ -67,7 +66,12 @@ fun ExploreScreen(onOpen: (VideoItem) -> Unit, vm: ExploreViewModel = viewModel(
 
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             items(state.items, key = { it.id }) { video ->
-                VideoCard(video = video, modifier = Modifier.padding(top = 18.dp)) { onOpen(video) }
+                VideoCard(
+                    video = video,
+                    modifier = Modifier.padding(top = 8.dp),
+                    onMore = { onMore(video) },
+                    onChannel = { onChannel(video) }
+                ) { onOpen(video) }
             }
         }
     }

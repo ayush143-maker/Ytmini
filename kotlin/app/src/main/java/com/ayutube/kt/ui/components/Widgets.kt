@@ -61,12 +61,13 @@ fun BrandHeader() {
 }
 
 enum class Tab(val label: String, val icon: ImageVector) {
-    Explore("Explore", AyIcons.Explore),
+    Home("Home", AyIcons.Home),
+    Search("Search", AyIcons.Search),
     Library("Library", AyIcons.Library),
     Account("Account", AyIcons.Account)
 }
 
-/** Bottom tabs: the active one gets a pink bar on top, as on the web. */
+/** Slim bottom bar: icons only, a pink bar above the active one. */
 @Composable
 fun AyTabBar(current: Tab, onSelect: (Tab) -> Unit) {
     Column(Modifier.fillMaxWidth().background(Ay.Ink).navigationBarsPadding()) {
@@ -76,29 +77,48 @@ fun AyTabBar(current: Tab, onSelect: (Tab) -> Unit) {
                 val active = tab == current
 
                 Box(
-                    Modifier.weight(1f).height(60.dp).clickable { onSelect(tab) },
+                    Modifier.weight(1f).height(48.dp).clickable { onSelect(tab) },
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
-                        Modifier.align(Alignment.TopCenter).fillMaxWidth().height(3.dp)
+                        Modifier.align(Alignment.TopCenter).fillMaxWidth().height(2.dp)
                             .background(if (active) Ay.Pink else Color.Transparent)
                     )
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            tab.icon,
-                            contentDescription = null,
-                            tint = if (active) Ay.Paper else Ay.Fog,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            tab.label,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (active) Ay.Paper else Ay.Fog
-                        )
-                    }
+                    Icon(
+                        tab.icon,
+                        contentDescription = tab.label,
+                        tint = if (active) Ay.Paper else Ay.Fog,
+                        modifier = Modifier.size(24.dp)
+                    )
                 }
+            }
+        }
+    }
+}
+
+/** YouTube-style filter pills that scroll sideways. */
+@Composable
+fun TopicChips(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    LazyRow(
+        modifier.fillMaxWidth(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        itemsIndexed(labels) { index, label ->
+            val active = index == selected
+
+            Box(
+                Modifier.background(if (active) Ay.Paper else Ay.SlateHi, androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                    .clickable { onSelect(index) }
+                    .padding(horizontal = 12.dp, vertical = 7.dp)
+            ) {
+                Text(
+                    label,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (active) Ay.Ink else Ay.Paper,
+                    maxLines = 1
+                )
             }
         }
     }
@@ -160,7 +180,7 @@ fun TabStrip(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modif
                 ) {
                     Text(
                         label,
-                        fontSize = 17.sp,
+                        fontSize = 15.sp,
                         fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
                         color = if (active) Ay.Paper else Ay.Fog,
                         maxLines = 1
@@ -179,7 +199,7 @@ fun TabStrip(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modif
 @Composable
 fun Panel(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Column(
-        modifier.fillMaxWidth().background(Ay.Slate).border(1.dp, Ay.Steel).padding(20.dp)
+        modifier.fillMaxWidth().background(Ay.Slate).border(1.dp, Ay.Steel).padding(16.dp)
     ) {
         content()
     }
@@ -187,7 +207,7 @@ fun Panel(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
 
 @Composable
 fun PanelTitle(text: String) {
-    Text(text, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+    Text(text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
 }
 
 @Composable
@@ -197,7 +217,7 @@ fun SectionHead(title: String, action: String? = null, onAction: () -> Unit = {}
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
 
         if (action != null) {
             Text(action, color = Ay.Bone, fontSize = 13.sp, modifier = Modifier.clickable(onClick = onAction))
@@ -213,15 +233,15 @@ fun SwitchRow(title: String, copy: String, checked: Boolean, onChange: (Boolean)
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f).padding(end = 16.dp)) {
-            Text(title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-            Text(copy, color = Ay.Fog, fontSize = 15.sp)
+            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(copy, color = Ay.Fog, fontSize = 13.sp)
         }
         Box(
-            Modifier.width(56.dp).height(40.dp).background(Ay.Ink)
+            Modifier.width(48.dp).height(30.dp).background(Ay.Ink)
                 .border(1.5.dp, if (checked) Ay.Pink else Ay.Steel)
         ) {
             Box(
-                Modifier.offset(x = if (checked) 28.dp else 4.dp, y = 4.dp).size(30.dp, 30.dp)
+                Modifier.offset(x = if (checked) 21.dp else 3.dp, y = 3.dp).size(22.dp, 22.dp)
                     .background(if (checked) Ay.Pink else Ay.Fog)
             )
         }
@@ -233,7 +253,7 @@ fun AyButton(text: String, onClick: () -> Unit, primary: Boolean = false, modifi
     val shape = if (primary) Modifier.background(Ay.Pink) else Modifier.border(1.dp, Ay.Steel)
 
     Box(
-        modifier.then(shape).clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp),
+        modifier.then(shape).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -241,7 +261,7 @@ fun AyButton(text: String, onClick: () -> Unit, primary: Boolean = false, modifi
             maxLines = 1,
             softWrap = false,
             fontWeight = FontWeight.Bold,
-            fontSize = 16.sp,
+            fontSize = 14.sp,
             color = when {
                 primary -> Ay.Ink
                 danger -> Ay.Pink

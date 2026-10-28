@@ -9,4 +9,5 @@ class AppContainer(context: Context) {
     val settings = SettingsStore(context)
     private val database = AyuDatabase.create(context)
     val library = LibraryRepository(database.library(), settings)
+    val recents = RecentSearches(context)
 }

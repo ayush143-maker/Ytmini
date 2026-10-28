@@ -86,4 +86,8 @@ object ExtractorRepository {
     suspend fun channelAvatar(id: String): String = withContext(Dispatchers.IO) {
         bestImage(ChannelInfo.getInfo("https://www.youtube.com/channel/$id").avatars)
     }
+
+    suspend fun suggestions(query: String): List<String> = withContext(Dispatchers.IO) {
+        youtube.suggestionExtractor.suggestionList(query).orEmpty()
+    }
 }

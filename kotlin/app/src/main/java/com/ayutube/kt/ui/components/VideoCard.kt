@@ -119,9 +119,9 @@ fun VideoCard(
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(
                     video.title,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    lineHeight = 20.sp,
+                    lineHeight = 19.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -129,7 +129,7 @@ fun VideoCard(
                     listOf(video.channel, viewsText(video.views), video.uploaded)
                         .filter { it.isNotEmpty() }
                         .joinToString(" \u00B7 "),
-                    fontSize = 12.5.sp,
+                    fontSize = 12.sp,
                     color = Ay.Dim,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
