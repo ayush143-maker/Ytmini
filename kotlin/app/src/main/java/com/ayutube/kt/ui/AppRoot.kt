@@ -96,7 +96,8 @@ fun AppRoot() {
                 }
             }
 
-            MiniPlayer(onExpand = { push(Overlay.Watch) })
+            // A fresh player view each time it appears, so the picture is drawn into it.
+            if (stack.none { it is Overlay.Watch }) MiniPlayer(onExpand = { push(Overlay.Watch) })
             AyTabBar(current = tab, onSelect = { tab = it })
         }
 
