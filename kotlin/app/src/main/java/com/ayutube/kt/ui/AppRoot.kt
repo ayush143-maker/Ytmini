@@ -21,18 +21,21 @@ import com.ayutube.kt.data.VideoItem
 import com.ayutube.kt.ui.account.AccountScreen
 import com.ayutube.kt.ui.channel.ChannelScreen
 import com.ayutube.kt.ui.channel.PlaylistScreen
+import com.ayutube.kt.AyuApp
 import com.ayutube.kt.ui.components.AyTabBar
+import com.ayutube.kt.ui.components.MiniPlayer
 import com.ayutube.kt.ui.components.Tab
 import com.ayutube.kt.ui.components.VideoMenuSheet
 import com.ayutube.kt.ui.home.HomeScreen
 import com.ayutube.kt.ui.library.LibraryScreen
 import com.ayutube.kt.ui.search.SearchScreen
 import com.ayutube.kt.ui.theme.Ay
+import com.ayutube.kt.ui.watch.PipPlayer
 import com.ayutube.kt.ui.watch.WatchScreen
 
 /** Full-screen pages that open over the tabs. Back closes the top one. */
 sealed interface Overlay {
-    data class Watch(val video: VideoItem) : Overlay
+    data object Watch : Overlay
     data class Channel(val id: String, val name: String) : Overlay
     data class Playlist(val id: String, val name: String) : Overlay
 }
@@ -52,10 +55,13 @@ fun AppRoot() {
         stack = stack.dropLast(1)
     }
 
+    val session = remember { AyuApp.container.playback }
+
     fun watch(video: VideoItem) {
-        // Opening another video replaces the current one instead of stacking.
-        stack = if (stack.lastOrNull() is Overlay.Watch) stack.dropLast(1) + Overlay.Watch(video)
-        else stack + Overlay.Watch(video)
+        // The session starts the video (or keeps it if it is already playing).
+        session.open(video)
+
+        if (stack.lastOrNull() !is Overlay.Watch) push(Overlay.Watch)
     }
 
     fun channel(video: VideoItem) {
@@ -65,6 +71,11 @@ fun AppRoot() {
     BackHandler(enabled = stack.isNotEmpty()) { pop() }
     BackHandler(enabled = stack.isEmpty() && tab != Tab.Home) { tab = Tab.Home }
     BackHandler(enabled = stack.isEmpty() && tab == Tab.Home) { activity?.moveTaskToBack(true) }
+
+    if (session.inPip) {
+        PipPlayer()
+        return
+    }
 
     Box(Modifier.fillMaxSize().background(Ay.Ink)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -85,6 +96,7 @@ fun AppRoot() {
                 }
             }
 
+            MiniPlayer(onExpand = { push(Overlay.Watch) })
             AyTabBar(current = tab, onSelect = { tab = it })
         }
 
@@ -92,7 +104,6 @@ fun AppRoot() {
             Box(Modifier.fillMaxSize().background(Ay.Ink).pointerInput(Unit) { detectTapGestures { } }) {
                 when (overlay) {
                     is Overlay.Watch -> WatchScreen(
-                        video = overlay.video,
                         onClose = ::pop,
                         onChannel = ::channel,
                         onOpen = ::watch
