@@ -10,7 +10,8 @@ data class Settings(
     val pauseHistory: Boolean = false,
     val autoplayNext: Boolean = true,
     val cleanControls: Boolean = false,
-    val studyMode: Boolean = false
+    val studyMode: Boolean = false,
+    val sponsorBlock: Boolean = true
 )
 
 /** What the person told the app about themselves (kept on the phone). */
@@ -30,7 +31,8 @@ class SettingsStore(context: Context) {
             pauseHistory = prefs.getBoolean("pauseHistory", false),
             autoplayNext = prefs.getBoolean("autoplayNext", true),
             cleanControls = prefs.getBoolean("cleanControls", false),
-            studyMode = prefs.getBoolean("studyMode", false)
+            studyMode = prefs.getBoolean("studyMode", false),
+            sponsorBlock = prefs.getBoolean("sponsorBlock", true)
         )
     )
     val settings: StateFlow<Settings> = _settings
@@ -46,6 +48,7 @@ class SettingsStore(context: Context) {
             .putBoolean("autoplayNext", next.autoplayNext)
             .putBoolean("cleanControls", next.cleanControls)
             .putBoolean("studyMode", next.studyMode)
+            .putBoolean("sponsorBlock", next.sponsorBlock)
             .apply()
         _settings.value = next
     }

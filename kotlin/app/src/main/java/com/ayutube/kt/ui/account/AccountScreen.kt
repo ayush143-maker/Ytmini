@@ -139,6 +139,9 @@ fun AccountScreen() {
             SwitchRow("Autoplay next video", "Play the next video when one ends.", settings.autoplayNext) { on ->
                 container.settings.update { it.copy(autoplayNext = on) }
             }
+            SwitchRow("Skip sponsor segments", "Skips sponsor and self-promotion parts (SponsorBlock).", settings.sponsorBlock) { on ->
+                container.settings.update { it.copy(sponsorBlock = on) }
+            }
             SwitchRow("Clean controls", "Hide extra buttons on the player.", settings.cleanControls) { on ->
                 container.settings.update { it.copy(cleanControls = on) }
             }
