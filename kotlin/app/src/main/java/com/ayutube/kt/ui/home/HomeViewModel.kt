@@ -11,7 +11,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+data class StudyConfig(val exam: String, val subjects: List<String>)
+
 data class HomeState(
+    val chips: List<String> = emptyList(),
     val chip: Int = 0,
     val loading: Boolean = true,
     val items: List<VideoItem> = emptyList(),
@@ -19,11 +22,12 @@ data class HomeState(
 )
 
 class HomeViewModel : ViewModel() {
-    private val _state = MutableStateFlow(HomeState())
+    private val normalChips = listOf("All") + HomeTopics.topics.map { it.label }
+
+    private val _state = MutableStateFlow(HomeState(chips = normalChips))
     val state: StateFlow<HomeState> = _state
 
-    val chips: List<String> = listOf("All") + HomeTopics.topics.map { it.label }
-
+    private var study: StudyConfig? = null
     private var builder: FeedBuilder? = null
     private var loadingMore = false
     private var generation = 0
@@ -53,6 +57,29 @@ class HomeViewModel : ViewModel() {
         return related + listOfNotNull(favourite) + HomeTopics.trending.take(2) + topics
     }
 
+    /** Switches Home between the normal mix and the study subjects. */
+    fun configure(next: StudyConfig?) {
+        if (next == study) return
+
+        study = next
+        _state.update {
+            it.copy(chips = if (next == null) normalChips else listOf("All") + next.subjects)
+        }
+        select(0)
+    }
+
+    private fun studyQueries(config: StudyConfig, index: Int): List<String> {
+        fun exam(subject: String) = listOf(config.exam, subject).filter { it.isNotBlank() }.joinToString(" ")
+
+        return if (index == 0) {
+            config.subjects.map { exam(it) }
+        } else {
+            val subject = config.subjects[index - 1]
+
+            listOf(exam(subject), "$subject lecture", "$subject important questions")
+        }
+    }
+
     fun select(index: Int) {
         generation += 1
         val mine = generation
@@ -60,7 +87,12 @@ class HomeViewModel : ViewModel() {
         _state.update { it.copy(chip = index, loading = true, items = emptyList(), error = null) }
 
         viewModelScope.launch {
-            val queries = if (index == 0) allQueries() else HomeTopics.topics[index - 1].queries
+            val config = study
+            val queries = when {
+                config != null -> studyQueries(config, index)
+                index == 0 -> allQueries()
+                else -> HomeTopics.topics[index - 1].queries
+            }
             val feed = FeedBuilder(queries)
 
             builder = feed

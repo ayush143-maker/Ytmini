@@ -1,7 +1,9 @@
 package com.ayutube.kt.ui.home
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,10 +19,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ayutube.kt.AyuApp
+import com.ayutube.kt.data.Study
 import com.ayutube.kt.data.VideoItem
 import com.ayutube.kt.ui.components.AyButton
 import com.ayutube.kt.ui.components.TopicChips
@@ -35,7 +40,18 @@ fun HomeScreen(
     vm: HomeViewModel = viewModel()
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val container = remember { AyuApp.container }
+    val settings by container.settings.settings.collectAsStateWithLifecycle()
+    val profile by container.settings.profile.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+
+    val study = if (settings.studyMode && profile.subjects.isNotEmpty()) {
+        StudyConfig(profile.examName.orEmpty(), profile.subjects)
+    } else {
+        null
+    }
+
+    LaunchedEffect(study) { vm.configure(study) }
 
     val nearEnd by remember {
         derivedStateOf {
@@ -48,8 +64,27 @@ fun HomeScreen(
         if (nearEnd) vm.loadMore()
     }
 
+    val days = if (settings.studyMode) Study.daysUntil(profile.examDate) else null
+
     Column(Modifier.fillMaxSize()) {
-        TopicChips(vm.chips, state.chip, vm::select)
+        if (days != null && days >= 0) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Text(if (days == 0L) "Today" else "$days", fontSize = 40.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 44.sp)
+                Text(
+                    if (days == 0L) profile.examName.orEmpty()
+                    else "${if (days == 1L) "day" else "days"} to ${profile.examName ?: "your exam"}",
+                    color = Ay.Fog,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
+        }
+
+        TopicChips(state.chips, state.chip, vm::select)
 
         state.error?.let {
             Column(Modifier.padding(16.dp)) {

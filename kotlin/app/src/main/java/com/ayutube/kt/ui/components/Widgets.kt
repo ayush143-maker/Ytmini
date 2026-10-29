@@ -281,3 +281,24 @@ fun AyChip(text: String, selected: Boolean, onClick: () -> Unit) {
         Text(text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (selected) Ay.Paper else Ay.Fog)
     }
 }
+
+/** A single-line text box in the app's square style. */
+@Composable
+fun AyField(value: String, onChange: (String) -> Unit, hint: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier.fillMaxWidth().height(46.dp).background(Ay.Slate).border(1.dp, Ay.Steel).padding(horizontal = 12.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onChange,
+            singleLine = true,
+            textStyle = TextStyle(fontFamily = Sans, fontSize = 15.sp, color = Ay.Paper),
+            cursorBrush = SolidColor(Ay.Pink),
+            decorationBox = { inner ->
+                if (value.isEmpty()) Text(hint, color = Ay.Dim, fontSize = 15.sp)
+                inner()
+            }
+        )
+    }
+}

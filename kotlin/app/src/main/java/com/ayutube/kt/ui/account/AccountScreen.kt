@@ -120,14 +120,7 @@ fun AccountScreen() {
 
         Spacer(Modifier.height(16.dp))
 
-        Panel {
-            PanelTitle("Study mode")
-            SwitchRow(
-                "Study mode",
-                "Exam, subjects and notes. Setup arrives in the next step.",
-                settings.studyMode
-            ) { on -> container.settings.update { it.copy(studyMode = on) } }
-        }
+        StudyPanel()
 
         Spacer(Modifier.height(16.dp))
 
