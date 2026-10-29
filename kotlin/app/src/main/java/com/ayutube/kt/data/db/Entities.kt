@@ -29,7 +29,8 @@ data class PlaylistItemEntity(
     @ColumnInfo(name = "channel_title") val channelTitle: String,
     @ColumnInfo(name = "thumbnail_url") val thumbnailUrl: String,
     val position: Int,
-    @ColumnInfo(name = "added_at") val addedAt: String
+    @ColumnInfo(name = "added_at") val addedAt: String,
+    @ColumnInfo(name = "channel_id", defaultValue = "") val channelId: String = ""
 )
 
 @Entity(tableName = "watch_later", indices = [Index(value = ["video_id"], unique = true)])
@@ -39,7 +40,8 @@ data class WatchLaterEntity(
     val title: String,
     @ColumnInfo(name = "channel_title") val channelTitle: String,
     @ColumnInfo(name = "thumbnail_url") val thumbnailUrl: String,
-    @ColumnInfo(name = "added_at") val addedAt: String
+    @ColumnInfo(name = "added_at") val addedAt: String,
+    @ColumnInfo(name = "channel_id", defaultValue = "") val channelId: String = ""
 )
 
 @Entity(tableName = "watch_history", indices = [Index(value = ["video_id"], unique = true)])
@@ -51,7 +53,8 @@ data class HistoryEntity(
     @ColumnInfo(name = "thumbnail_url") val thumbnailUrl: String,
     @ColumnInfo(name = "watched_at") val watchedAt: String,
     @ColumnInfo(name = "progress_seconds") val progressSeconds: Int,
-    @ColumnInfo(name = "duration_seconds") val durationSeconds: Int?
+    @ColumnInfo(name = "duration_seconds") val durationSeconds: Int?,
+    @ColumnInfo(name = "channel_id", defaultValue = "") val channelId: String = ""
 )
 
 @Entity(tableName = "video_likes", indices = [Index(value = ["video_id"], unique = true)])
@@ -61,7 +64,8 @@ data class LikeEntity(
     val title: String,
     @ColumnInfo(name = "channel_title") val channelTitle: String,
     @ColumnInfo(name = "thumbnail_url") val thumbnailUrl: String,
-    @ColumnInfo(name = "created_at") val createdAt: String
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "channel_id", defaultValue = "") val channelId: String = ""
 )
 
 @Entity(tableName = "channel_preferences")

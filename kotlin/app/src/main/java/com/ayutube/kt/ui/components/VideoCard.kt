@@ -50,8 +50,10 @@ fun viewsText(views: Long): String = when {
 /** A round channel picture; falls back to the first letter. */
 @Composable
 fun ChannelAvatar(name: String, url: String, channelId: String, size: Int = 38) {
-    val picture by produceState(url, channelId, url) {
-        if (url.isEmpty() && channelId.isNotEmpty()) value = AvatarCache.get(channelId)
+    val picture by produceState(url, channelId, url, name) {
+        if (url.isEmpty()) {
+            value = if (channelId.isNotEmpty()) AvatarCache.get(channelId) else AvatarCache.byName(name)
+        }
     }
 
     Box(

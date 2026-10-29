@@ -64,7 +64,7 @@ class LibraryRepository(
     suspend fun addToPlaylist(playlistId: String, video: VideoItem): Boolean {
         val position = dao.maxPosition(playlistId) + 1
         val row = PlaylistItemEntity(
-            newId(), playlistId, video.id, video.title, video.channel, video.thumbnail, position, now()
+            newId(), playlistId, video.id, video.title, video.channel, video.thumbnail, position, now(), video.channelId
         )
 
         return dao.insertItem(row) != -1L
@@ -82,7 +82,7 @@ class LibraryRepository(
 
     suspend fun addWatchLater(video: VideoItem): Boolean =
         dao.insertWatchLater(
-            WatchLaterEntity(newId(), video.id, video.title, video.channel, video.thumbnail, now())
+            WatchLaterEntity(newId(), video.id, video.title, video.channel, video.thumbnail, now(), video.channelId)
         ) != -1L
 
     suspend fun removeWatchLater(videoId: String) = dao.deleteWatchLater(videoId)
@@ -106,7 +106,8 @@ class LibraryRepository(
                 thumbnailUrl = video.thumbnail,
                 watchedAt = now(),
                 progressSeconds = progressSeconds.coerceAtLeast(0),
-                durationSeconds = durationSeconds?.takeIf { it > 0 }
+                durationSeconds = durationSeconds?.takeIf { it > 0 },
+                channelId = video.channelId.ifEmpty { existing?.channelId.orEmpty() }
             )
         )
     }
@@ -121,7 +122,7 @@ class LibraryRepository(
     suspend fun isLiked(videoId: String) = dao.isLiked(videoId) > 0
 
     suspend fun like(video: VideoItem) {
-        dao.insertLike(LikeEntity(newId(), video.id, video.title, video.channel, video.thumbnail, now()))
+        dao.insertLike(LikeEntity(newId(), video.id, video.title, video.channel, video.thumbnail, now(), video.channelId))
     }
 
     suspend fun unlike(videoId: String) = dao.deleteLike(videoId)
@@ -190,7 +191,7 @@ class LibraryRepository(
                     JSONObject().put("id", it.id).put("playlist_id", it.playlistId).put("video_id", it.videoId)
                         .put("title", it.title).put("channel_title", it.channelTitle)
                         .put("thumbnail_url", it.thumbnailUrl).put("position", it.position)
-                        .put("added_at", it.addedAt)
+                        .put("added_at", it.addedAt).put("channel_id", it.channelId)
                 )
             }
         })
@@ -199,7 +200,7 @@ class LibraryRepository(
                 array.put(
                     JSONObject().put("id", it.id).put("video_id", it.videoId).put("title", it.title)
                         .put("channel_title", it.channelTitle).put("thumbnail_url", it.thumbnailUrl)
-                        .put("added_at", it.addedAt)
+                        .put("added_at", it.addedAt).put("channel_id", it.channelId)
                 )
             }
         })
@@ -209,7 +210,7 @@ class LibraryRepository(
                     JSONObject().put("id", it.id).put("video_id", it.videoId).put("title", it.title)
                         .put("channel_title", it.channelTitle).put("thumbnail_url", it.thumbnailUrl)
                         .put("watched_at", it.watchedAt).put("progress_seconds", it.progressSeconds)
-                        .put("duration_seconds", it.durationSeconds ?: JSONObject.NULL)
+                        .put("duration_seconds", it.durationSeconds ?: JSONObject.NULL).put("channel_id", it.channelId)
                 )
             }
         })
@@ -218,7 +219,7 @@ class LibraryRepository(
                 array.put(
                     JSONObject().put("id", it.id).put("video_id", it.videoId).put("title", it.title)
                         .put("channel_title", it.channelTitle).put("thumbnail_url", it.thumbnailUrl)
-                        .put("created_at", it.createdAt)
+                        .put("created_at", it.createdAt).put("channel_id", it.channelId)
                 )
             }
         })
@@ -283,7 +284,7 @@ class LibraryRepository(
                     PlaylistItemEntity(
                         row.id(), row.str("playlist_id"), row.str("video_id"), row.str("title"),
                         row.str("channel_title"), row.str("thumbnail_url"), row.optInt("position"),
-                        row.str("added_at").ifEmpty { now() }
+                        row.str("added_at").ifEmpty { now() }, row.str("channel_id")
                     )
                 ) != -1L
             ) added += 1
@@ -295,7 +296,7 @@ class LibraryRepository(
             if (dao.insertWatchLater(
                     WatchLaterEntity(
                         row.id(), row.str("video_id"), row.str("title"), row.str("channel_title"),
-                        row.str("thumbnail_url"), row.str("added_at").ifEmpty { now() }
+                        row.str("thumbnail_url"), row.str("added_at").ifEmpty { now() }, row.str("channel_id")
                     )
                 ) != -1L
             ) added += 1
@@ -309,7 +310,8 @@ class LibraryRepository(
                         row.id(), row.str("video_id"), row.str("title"), row.str("channel_title"),
                         row.str("thumbnail_url"), row.str("watched_at").ifEmpty { now() },
                         row.optInt("progress_seconds"),
-                        if (row.isNull("duration_seconds")) null else row.optInt("duration_seconds")
+                        if (row.isNull("duration_seconds")) null else row.optInt("duration_seconds"),
+                        row.str("channel_id")
                     )
                 ) != -1L
             ) added += 1
@@ -321,7 +323,7 @@ class LibraryRepository(
             if (dao.insertLike(
                     LikeEntity(
                         row.id(), row.str("video_id"), row.str("title"), row.str("channel_title"),
-                        row.str("thumbnail_url"), row.str("created_at").ifEmpty { now() }
+                        row.str("thumbnail_url"), row.str("created_at").ifEmpty { now() }, row.str("channel_id")
                     )
                 ) != -1L
             ) added += 1

@@ -57,8 +57,8 @@ import kotlinx.coroutines.launch
 
 private val SECTIONS = listOf("Overview", "Playlists", "Watch later", "Liked", "History", "Following")
 
-private fun video(id: String, title: String, channel: String, thumbnail: String) = VideoItem(
-    id = id, title = title, channel = channel, channelId = "", thumbnail = thumbnail,
+private fun video(id: String, title: String, channel: String, thumbnail: String, channelId: String = "") = VideoItem(
+    id = id, title = title, channel = channel, channelId = channelId, thumbnail = thumbnail,
     durationSec = 0, views = -1, uploaded = "", avatar = ""
 )
 
@@ -120,13 +120,13 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
     LaunchedEffect(refresh, section, openPlaylist) {
         stats = library.stats()
         history = library.history(100)
-        later = library.watchLater(100).map { video(it.videoId, it.title, it.channelTitle, it.thumbnailUrl) }
-        liked = library.likes(100).map { video(it.videoId, it.title, it.channelTitle, it.thumbnailUrl) }
+        later = library.watchLater(100).map { video(it.videoId, it.title, it.channelTitle, it.thumbnailUrl, it.channelId) }
+        liked = library.likes(100).map { video(it.videoId, it.title, it.channelTitle, it.thumbnailUrl, it.channelId) }
         playlists = library.playlists()
         progress = library.playlistProgress()
         follows = library.channelPrefs().filter { it.kind == "follow" }
         playlistItems = openPlaylist?.let { open ->
-            library.playlistItems(open.id).map { video(it.videoId, it.title, it.channelTitle, it.thumbnailUrl) }
+            library.playlistItems(open.id).map { video(it.videoId, it.title, it.channelTitle, it.thumbnailUrl, it.channelId) }
         } ?: emptyList()
     }
 
@@ -191,11 +191,11 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
                         item { Box(Modifier.padding(horizontal = 16.dp)) { SectionHead("History", "See all") { section = 4 } } }
                         items(history.take(3), key = { "h-" + it.videoId }) { row ->
                             VideoCard(
-                                video(row.videoId, row.title, row.channelTitle, row.thumbnailUrl),
+                                video(row.videoId, row.title, row.channelTitle, row.thumbnailUrl, row.channelId),
                                 progress = row.durationSeconds?.takeIf { it > 0 }
                                     ?.let { row.progressSeconds.toFloat() / it },
                                 modifier = Modifier.padding(top = 10.dp)
-                            ) { onOpen(video(row.videoId, row.title, row.channelTitle, row.thumbnailUrl)) }
+                            ) { onOpen(video(row.videoId, row.title, row.channelTitle, row.thumbnailUrl, row.channelId)) }
                         }
                     }
                 }
@@ -317,7 +317,7 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
                         }
                     }
                     items(history, key = { "hh-" + it.videoId }) { row ->
-                        val entry = video(row.videoId, row.title, row.channelTitle, row.thumbnailUrl)
+                        val entry = video(row.videoId, row.title, row.channelTitle, row.thumbnailUrl, row.channelId)
 
                         VideoCard(
                             entry,

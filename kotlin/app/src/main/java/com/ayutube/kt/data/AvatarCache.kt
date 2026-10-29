@@ -44,4 +44,35 @@ object AvatarCache {
             }
         }
     }
+
+    /** Picture by channel name, for rows saved before channel ids were kept. */
+    suspend fun byName(name: String): String {
+        val key = "name:" + name.trim().lowercase()
+
+        if (name.isBlank()) return ""
+
+        memory[key]?.let { return it }
+
+        if (key in failed) return ""
+
+        return gate.withPermit {
+            memory[key]?.let { return@withPermit it }
+
+            try {
+                val url = ExtractorRepository.channelAvatarByName(name)
+
+                if (url.startsWith("https://")) {
+                    memory[key] = url
+                    prefs?.edit()?.putString(key, url)?.apply()
+                    url
+                } else {
+                    failed.add(key)
+                    ""
+                }
+            } catch (_: Exception) {
+                failed.add(key)
+                ""
+            }
+        }
+    }
 }

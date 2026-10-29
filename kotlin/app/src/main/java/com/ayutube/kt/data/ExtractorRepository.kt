@@ -7,6 +7,7 @@ import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.channel.ChannelInfo
+import org.schabi.newpipe.extractor.channel.ChannelInfoItem
 import org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo
 import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
 import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
@@ -202,4 +203,13 @@ object ExtractorRepository {
 
     /** YouTube's own "related" list for a video. */
     fun related(info: StreamInfo): List<VideoItem> = videosOf(info.relatedItems)
+
+    /** Finds a channel's picture by its name (older saved videos have no channel id). */
+    suspend fun channelAvatarByName(name: String): String = withContext(Dispatchers.IO) {
+        val handler = youtube.searchQHFactory.fromQuery(name, listOf("channels"), "")
+        val found = SearchInfo.getInfo(youtube, handler).relatedItems.filterIsInstance<ChannelInfoItem>()
+        val match = found.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: found.firstOrNull()
+
+        bestImage(match?.thumbnails)
+    }
 }
