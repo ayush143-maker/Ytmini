@@ -93,6 +93,10 @@ fun HomeScreen(
             }
         }
 
+        state.note?.let {
+            Text(it, color = Ay.Fog, fontSize = 14.sp, modifier = Modifier.padding(24.dp))
+        }
+
         if (state.loading) {
             Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Ay.Pink)

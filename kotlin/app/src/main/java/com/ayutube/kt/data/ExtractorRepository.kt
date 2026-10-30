@@ -31,6 +31,14 @@ data class VideoItem(
 
 data class VideoPage(val items: List<VideoItem>, val next: Page?)
 
+data class ChannelSummary(
+    val id: String,
+    val name: String,
+    val avatar: String,
+    val subscribers: Long,
+    val description: String
+)
+
 data class ChannelDetail(
     val id: String,
     val name: String,
@@ -211,5 +219,25 @@ object ExtractorRepository {
         val match = found.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: found.firstOrNull()
 
         bestImage(match?.thumbnails)
+    }
+
+    suspend fun searchChannels(query: String): List<ChannelSummary> = withContext(Dispatchers.IO) {
+        val handler = youtube.searchQHFactory.fromQuery(query, listOf("channels"), "")
+
+        SearchInfo.getInfo(youtube, handler).relatedItems.filterIsInstance<ChannelInfoItem>().mapNotNull { item ->
+            val id = channelId.find(item.url)?.groupValues?.get(1) ?: return@mapNotNull null
+
+            ChannelSummary(id, item.name.orEmpty(), bestImage(item.thumbnails), item.subscriberCount, item.description.orEmpty())
+        }
+    }
+
+    suspend fun searchPlaylists(query: String): List<PlaylistSummary> = withContext(Dispatchers.IO) {
+        val handler = youtube.searchQHFactory.fromQuery(query, listOf("playlists"), "")
+
+        SearchInfo.getInfo(youtube, handler).relatedItems.filterIsInstance<PlaylistInfoItem>().mapNotNull { item ->
+            val id = playlistId.find(item.url)?.groupValues?.get(1) ?: return@mapNotNull null
+
+            PlaylistSummary(id, item.name.orEmpty(), bestImage(item.thumbnails), item.streamCount, item.uploaderName.orEmpty())
+        }
     }
 }

@@ -3,7 +3,9 @@ package com.ayutube.kt.ui.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ayutube.kt.AyuApp
+import com.ayutube.kt.data.ChannelSummary
 import com.ayutube.kt.data.ExtractorRepository
+import com.ayutube.kt.data.PlaylistSummary
 import com.ayutube.kt.data.VideoItem
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -20,6 +22,9 @@ data class SearchState(
     val items: List<VideoItem> = emptyList(),
     val suggestions: List<String> = emptyList(),
     val recents: List<String> = emptyList(),
+    val type: Int = 0,
+    val channels: List<ChannelSummary>? = null,
+    val playlists: List<PlaylistSummary>? = null,
     val error: String? = null
 )
 
@@ -69,6 +74,7 @@ class SearchViewModel : ViewModel() {
         _state.update {
             it.copy(
                 query = text, searched = true, loading = true, error = null, items = emptyList(),
+                type = 0, channels = null, playlists = null,
                 suggestions = emptyList(), recents = recents.all()
             )
         }
@@ -110,6 +116,37 @@ class SearchViewModel : ViewModel() {
                 // The next scroll tries again.
             } finally {
                 loadingMore = false
+            }
+        }
+    }
+
+    /** Videos, Channels or Playlists; the other two load when first opened. */
+    fun setType(type: Int) {
+        _state.update { it.copy(type = type) }
+
+        val query = activeQuery
+
+        if (query.isEmpty()) return
+
+        viewModelScope.launch {
+            try {
+                if (type == 1 && _state.value.channels == null) {
+                    val found = ExtractorRepository.searchChannels(query)
+
+                    _state.update { it.copy(channels = found) }
+                } else if (type == 2 && _state.value.playlists == null) {
+                    val found = ExtractorRepository.searchPlaylists(query)
+
+                    _state.update { it.copy(playlists = found) }
+                }
+            } catch (error: Exception) {
+                _state.update {
+                    it.copy(
+                        channels = it.channels ?: emptyList(),
+                        playlists = it.playlists ?: emptyList(),
+                        error = error.message ?: error.javaClass.simpleName
+                    )
+                }
             }
         }
     }

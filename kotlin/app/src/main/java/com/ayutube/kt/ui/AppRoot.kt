@@ -89,7 +89,9 @@ fun AppRoot() {
                     Tab.Search -> SearchScreen(
                         onOpen = ::watch,
                         onChannel = ::channel,
-                        onMore = { menuVideo = it }
+                        onMore = { menuVideo = it },
+                        onOpenChannel = { id, name -> push(Overlay.Channel(id, name)) },
+                        onOpenPlaylist = { push(Overlay.Playlist(it.id, it.name)) }
                     )
                     Tab.Library -> LibraryScreen(onOpen = ::watch)
                     Tab.Account -> AccountScreen()
