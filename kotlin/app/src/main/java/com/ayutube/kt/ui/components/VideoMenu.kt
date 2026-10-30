@@ -34,7 +34,7 @@ import com.ayutube.kt.ui.theme.Sans
 import kotlinx.coroutines.launch
 
 @Composable
-private fun MenuRow(icon: ImageVector, label: String, onClick: () -> Unit) {
+fun MenuRow(icon: ImageVector, label: String, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically

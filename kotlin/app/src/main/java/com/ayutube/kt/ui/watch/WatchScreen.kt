@@ -672,6 +672,11 @@ fun WatchScreen(
                         row("Quality", session.quality?.label ?: "Auto") { sheet = "quality" }
                         row("Speed", if (session.speed == 1f) "Normal" else "${session.speed}x") { sheet = "speed" }
                         row("Audio", session.audio?.let { "${it.averageBitrate} kbps" } ?: "Default") { sheet = "audio" }
+                        row(
+                            "Captions",
+                            session.captions.firstOrNull { it.language == session.caption }?.label
+                                ?: if (session.captions.isEmpty()) "None available" else "Off"
+                        ) { if (session.captions.isNotEmpty()) sheet = "captions" }
                     }
                     "quality" -> {
                         Text("Quality", fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
@@ -687,6 +692,19 @@ fun WatchScreen(
                         SPEEDS.forEach { value ->
                             row(if (value == 1f) "Normal" else "${value}x", selected = value == session.speed) {
                                 session.changeSpeed(value)
+                                sheet = null
+                            }
+                        }
+                    }
+                    "captions" -> {
+                        Text("Captions", fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                        row("Off", selected = session.caption == null) {
+                            session.selectCaption(null)
+                            sheet = null
+                        }
+                        session.captions.forEach { track ->
+                            row(track.label, selected = track.language == session.caption) {
+                                session.selectCaption(track.language)
                                 sheet = null
                             }
                         }

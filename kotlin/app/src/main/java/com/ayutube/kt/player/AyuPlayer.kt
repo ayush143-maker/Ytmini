@@ -1,6 +1,7 @@
 package com.ayutube.kt.player
 
 import android.content.Context
+import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -16,12 +17,16 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.source.SingleSampleMediaSource
 import okhttp3.OkHttpClient
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.Stream
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.VideoStream
+
+/** A subtitle track the person can switch on. */
+data class Caption(val label: String, val language: String, val url: String, val mime: String)
 
 /** One entry in the quality menu. */
 data class QualityOption(val label: String, val video: VideoStream, val muxed: Boolean)
@@ -98,11 +103,33 @@ class AyuPlayer(context: Context) {
         audios.filter { isMp4(it) }.ifEmpty { audios }.maxByOrNull { it.averageBitrate }
 
     /** Plays [option] (with [audio] unless it is muxed) from [positionMs]. */
-    fun play(option: QualityOption, audio: AudioStream?, positionMs: Long, meta: MediaMetadata? = null) {
+    fun play(
+        option: QualityOption,
+        audio: AudioStream?,
+        positionMs: Long,
+        meta: MediaMetadata? = null,
+        captions: List<Caption> = emptyList()
+    ) {
         val video = source(option.video.content, meta)
 
-        val media = if (option.muxed || audio == null) video
-        else MergingMediaSource(video, source(audio.content))
+        val subtitles = captions.map { caption ->
+            val configuration = MediaItem.SubtitleConfiguration.Builder(Uri.parse(caption.url))
+                .setMimeType(caption.mime)
+                .setLanguage(caption.language)
+                .setLabel(caption.label)
+                .setSelectionFlags(0)
+                .build()
+
+            SingleSampleMediaSource.Factory(dataFactory).createMediaSource(configuration, C.TIME_UNSET)
+        }
+
+        val parts = mutableListOf(video)
+
+        if (!option.muxed && audio != null) parts += source(audio.content)
+
+        parts += subtitles
+
+        val media = if (parts.size == 1) video else MergingMediaSource(*parts.toTypedArray())
 
         exo.setMediaSource(media, positionMs)
         exo.prepare()
@@ -115,6 +142,14 @@ class AyuPlayer(context: Context) {
         exo.setMediaSource(HlsMediaSource.Factory(dataFactory).createMediaSource(item))
         exo.prepare()
         exo.playWhenReady = true
+    }
+
+    /** Shows the caption track in [language], or hides captions when null. */
+    fun setCaption(language: String?) {
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, language == null)
+            .apply { if (language != null) setPreferredTextLanguage(language) }
+            .build()
     }
 
     fun setSpeed(speed: Float) {
