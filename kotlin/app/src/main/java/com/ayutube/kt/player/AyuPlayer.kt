@@ -2,7 +2,10 @@ package com.ayutube.kt.player
 
 import android.content.Context
 import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -38,15 +41,27 @@ class AyuPlayer(context: Context) {
             .build()
     )
 
-    val exo: ExoPlayer = ExoPlayer.Builder(context).build()
+    val exo: ExoPlayer = ExoPlayer.Builder(context)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                .build(),
+            true
+        )
+        .setHandleAudioBecomingNoisy(true)
+        .build()
 
     private fun progressive(stream: Stream) =
         stream.isUrl && stream.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP
 
     private fun isMp4(stream: Stream) = stream.format?.mimeType?.contains("mp4") == true
 
-    private fun source(url: String): MediaSource =
-        ProgressiveMediaSource.Factory(dataFactory).createMediaSource(MediaItem.fromUri(url))
+    private fun source(url: String, meta: MediaMetadata? = null): MediaSource {
+        val item = MediaItem.Builder().setUri(url).apply { if (meta != null) setMediaMetadata(meta) }.build()
+
+        return ProgressiveMediaSource.Factory(dataFactory).createMediaSource(item)
+    }
 
     /** Quality choices, best first: adaptive (separate audio) then the muxed fallback. */
     fun qualities(info: StreamInfo): List<QualityOption> {
@@ -83,8 +98,8 @@ class AyuPlayer(context: Context) {
         audios.filter { isMp4(it) }.ifEmpty { audios }.maxByOrNull { it.averageBitrate }
 
     /** Plays [option] (with [audio] unless it is muxed) from [positionMs]. */
-    fun play(option: QualityOption, audio: AudioStream?, positionMs: Long) {
-        val video = source(option.video.content)
+    fun play(option: QualityOption, audio: AudioStream?, positionMs: Long, meta: MediaMetadata? = null) {
+        val video = source(option.video.content, meta)
 
         val media = if (option.muxed || audio == null) video
         else MergingMediaSource(video, source(audio.content))
@@ -94,8 +109,10 @@ class AyuPlayer(context: Context) {
         exo.playWhenReady = true
     }
 
-    fun playHls(url: String) {
-        exo.setMediaSource(HlsMediaSource.Factory(dataFactory).createMediaSource(MediaItem.fromUri(url)))
+    fun playHls(url: String, meta: MediaMetadata? = null) {
+        val item = MediaItem.Builder().setUri(url).apply { if (meta != null) setMediaMetadata(meta) }.build()
+
+        exo.setMediaSource(HlsMediaSource.Factory(dataFactory).createMediaSource(item))
         exo.prepare()
         exo.playWhenReady = true
     }

@@ -1,11 +1,14 @@
 package com.ayutube.kt.player
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import com.ayutube.kt.data.ExtractorRepository
@@ -41,6 +44,8 @@ class PlaybackSession(
     private val settings: SettingsStore,
     private val library: LibraryRepository
 ) {
+    private val appContext = context.applicationContext
+
     val ayu = AyuPlayer(context)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -152,7 +157,23 @@ class PlaybackSession(
         durationMs = 0L
         ayu.exo.stop()
 
+        startService()
         loadJob = scope.launch { load(next) }
+    }
+
+    private fun meta(item: VideoItem): MediaMetadata = MediaMetadata.Builder()
+        .setTitle(item.title)
+        .setArtist(item.channel)
+        .setArtworkUri(if (item.thumbnail.isNotEmpty()) Uri.parse(item.thumbnail) else null)
+        .build()
+
+    /** Keeps the video playing, with a notification, when the app is in the background. */
+    private fun startService() {
+        try {
+            appContext.startService(Intent(appContext, PlaybackService::class.java))
+        } catch (_: Exception) {
+            // Playback still works while the app is open.
+        }
     }
 
     private suspend fun load(next: VideoItem) {
@@ -172,10 +193,10 @@ class PlaybackSession(
             if (first != null) {
                 quality = first
                 audio = ayu.defaultAudio(audios)
-                ayu.play(first, audio, resume)
+                ayu.play(first, audio, resume, meta(next))
                 ayu.setSpeed(speed)
             } else if (!streams.hlsUrl.isNullOrEmpty()) {
-                ayu.playHls(streams.hlsUrl)
+                ayu.playHls(streams.hlsUrl, meta(next))
             } else {
                 error = "No playable stream was found for this video."
             }
@@ -257,7 +278,7 @@ class PlaybackSession(
         quality = nextQuality
         audio = nextAudio
         error = null
-        ayu.play(nextQuality, nextAudio, at)
+        ayu.play(nextQuality, nextAudio, at, video?.let { meta(it) })
         ayu.setSpeed(speed)
     }
 
@@ -290,5 +311,6 @@ class PlaybackSession(
         chapters = emptyList()
         skips = emptyList()
         playing = false
+        appContext.stopService(Intent(appContext, PlaybackService::class.java))
     }
 }
