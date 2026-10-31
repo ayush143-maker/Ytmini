@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,7 +49,10 @@ import com.ayutube.kt.data.db.LibraryStats
 import com.ayutube.kt.data.db.PlaylistEntity
 import com.ayutube.kt.data.db.PlaylistProgress
 import com.ayutube.kt.ui.components.AyButton
+import com.ayutube.kt.ui.components.AyField
+import com.ayutube.kt.ui.components.AyIcons
 import com.ayutube.kt.ui.components.ChannelAvatar
+import com.ayutube.kt.ui.components.MenuRow
 import com.ayutube.kt.ui.components.SectionHead
 import com.ayutube.kt.ui.components.TabStrip
 import com.ayutube.kt.ui.components.VideoCard
@@ -98,6 +103,7 @@ private fun BlockShape(kind: Int) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
     val library = remember { AyuApp.container.library }
@@ -115,7 +121,10 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
     var follows by remember { mutableStateOf<List<ChannelPrefEntity>>(emptyList()) }
     var openPlaylist by remember { mutableStateOf<PlaylistEntity?>(null) }
     var playlistItems by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+    var playlistItemIds by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var newName by remember { mutableStateOf("") }
+    var renaming by remember { mutableStateOf<String?>(null) }
+    var menuFor by remember { mutableStateOf<Pair<VideoItem, String>?>(null) }
 
     LaunchedEffect(refresh, section, openPlaylist) {
         stats = library.stats()
@@ -125,9 +134,11 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
         playlists = library.playlists()
         progress = library.playlistProgress()
         follows = library.channelPrefs().filter { it.kind == "follow" }
-        playlistItems = openPlaylist?.let { open ->
-            library.playlistItems(open.id).map { video(it.videoId, it.title, it.channelTitle, it.thumbnailUrl, it.channelId) }
-        } ?: emptyList()
+
+        val rows = openPlaylist?.let { library.playlistItems(it.id) }.orEmpty()
+
+        playlistItems = rows.map { video(it.videoId, it.title, it.channelTitle, it.thumbnailUrl, it.channelId) }
+        playlistItemIds = rows.associate { it.videoId to it.id }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -138,7 +149,7 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 16.dp, bottom = 2.dp)
             )
-            TabStrip(SECTIONS, section, { section = it; openPlaylist = null })
+            TabStrip(SECTIONS, section, { section = it; openPlaylist = null; renaming = null })
         }
 
         LazyColumn(Modifier.fillMaxSize()) {
@@ -190,12 +201,15 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
                     if (history.isNotEmpty()) {
                         item { Box(Modifier.padding(horizontal = 16.dp)) { SectionHead("History", "See all") { section = 4 } } }
                         items(history.take(3), key = { "h-" + it.videoId }) { row ->
+                            val entry = video(row.videoId, row.title, row.channelTitle, row.thumbnailUrl, row.channelId)
+
                             VideoCard(
-                                video(row.videoId, row.title, row.channelTitle, row.thumbnailUrl, row.channelId),
+                                entry,
                                 progress = row.durationSeconds?.takeIf { it > 0 }
                                     ?.let { row.progressSeconds.toFloat() / it },
-                                modifier = Modifier.padding(top = 10.dp)
-                            ) { onOpen(video(row.videoId, row.title, row.channelTitle, row.thumbnailUrl, row.channelId)) }
+                                modifier = Modifier.padding(top = 10.dp),
+                                onMore = { menuFor = entry to "history" }
+                            ) { onOpen(entry) }
                         }
                     }
                 }
@@ -260,20 +274,36 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
                         }
                     } else {
                         item {
-                            Row(
-                                Modifier.padding(16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(open.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                AyButton("Back", onClick = { openPlaylist = null })
-                                AyButton("Delete", danger = true, onClick = {
-                                    scope.launch {
-                                        library.deletePlaylist(open.id)
-                                        openPlaylist = null
-                                        refresh += 1
+                            Column(Modifier.padding(16.dp)) {
+                                Text(open.name, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+
+                                Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    AyButton("Back", onClick = { openPlaylist = null; renaming = null })
+                                    AyButton("Rename", onClick = { renaming = renaming ?: open.name })
+                                    AyButton("Delete", danger = true, onClick = {
+                                        scope.launch {
+                                            library.deletePlaylist(open.id)
+                                            openPlaylist = null
+                                            refresh += 1
+                                        }
+                                    })
+                                }
+
+                                renaming?.let { name ->
+                                    Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Row(Modifier.weight(1f).padding(end = 8.dp)) {
+                                            AyField(name, { renaming = it }, "Playlist name")
+                                        }
+                                        AyButton("Save", primary = true, onClick = {
+                                            scope.launch {
+                                                library.renamePlaylist(open.id, name)
+                                                openPlaylist = library.playlists().firstOrNull { it.id == open.id }
+                                                renaming = null
+                                                refresh += 1
+                                            }
+                                        })
                                     }
-                                })
+                                }
                             }
                         }
 
@@ -282,7 +312,11 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
                         }
 
                         items(playlistItems, key = { "p-" + it.id }) { item ->
-                            VideoCard(item, modifier = Modifier.padding(top = 10.dp)) { onOpen(item) }
+                            VideoCard(
+                                item,
+                                modifier = Modifier.padding(top = 10.dp),
+                                onMore = { menuFor = item to "playlist" }
+                            ) { onOpen(item) }
                         }
                     }
                 }
@@ -290,14 +324,14 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
                 2 -> {
                     if (later.isEmpty()) item { Text("Nothing saved for later.", color = Ay.Fog, modifier = Modifier.padding(16.dp)) }
                     items(later, key = { "l-" + it.id }) { item ->
-                        VideoCard(item, modifier = Modifier.padding(top = 10.dp)) { onOpen(item) }
+                        VideoCard(item, modifier = Modifier.padding(top = 10.dp), onMore = { menuFor = item to "later" }) { onOpen(item) }
                     }
                 }
 
                 3 -> {
                     if (liked.isEmpty()) item { Text("No liked videos yet.", color = Ay.Fog, modifier = Modifier.padding(16.dp)) }
                     items(liked, key = { "k-" + it.id }) { item ->
-                        VideoCard(item, modifier = Modifier.padding(top = 10.dp)) { onOpen(item) }
+                        VideoCard(item, modifier = Modifier.padding(top = 10.dp), onMore = { menuFor = item to "liked" }) { onOpen(item) }
                     }
                 }
 
@@ -322,7 +356,8 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
                         VideoCard(
                             entry,
                             progress = row.durationSeconds?.takeIf { it > 0 }?.let { row.progressSeconds.toFloat() / it },
-                            modifier = Modifier.padding(top = 10.dp)
+                            modifier = Modifier.padding(top = 10.dp),
+                            onMore = { menuFor = entry to "history" }
                         ) { onOpen(entry) }
                     }
                 }
@@ -348,6 +383,41 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
                                 }
                             })
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    menuFor?.let { (item, kind) ->
+        ModalBottomSheet(onDismissRequest = { menuFor = null }, containerColor = Ay.Slate) {
+            Column(Modifier.padding(bottom = 24.dp)) {
+                Text(
+                    item.title,
+                    fontSize = 14.sp,
+                    color = Ay.Fog,
+                    maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                )
+
+                val label = when (kind) {
+                    "history" -> "Remove from history"
+                    "later" -> "Remove from Watch later"
+                    "liked" -> "Remove from liked videos"
+                    else -> "Remove from playlist"
+                }
+
+                MenuRow(AyIcons.Close, label) {
+                    scope.launch {
+                        when (kind) {
+                            "history" -> library.removeHistory(item.id)
+                            "later" -> library.removeWatchLater(item.id)
+                            "liked" -> library.unlike(item.id)
+                            else -> playlistItemIds[item.id]?.let { library.removeFromPlaylist(it) }
+                        }
+
+                        menuFor = null
+                        refresh += 1
                     }
                 }
             }
