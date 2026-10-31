@@ -2,7 +2,7 @@ name: Android Kotlin APK
 
 on:
   push:
-    branches: [Aurix-to-Kotlin]
+    branches: [Aurix-to-Kotlin, Aurix-to-Kotlin-ui-polish]
   workflow_dispatch:
 
 concurrency:
