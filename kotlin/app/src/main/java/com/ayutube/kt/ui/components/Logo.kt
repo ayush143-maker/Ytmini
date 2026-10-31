@@ -25,14 +25,22 @@ object AyuLogo {
     val WordColor = Color(0xFFF4EEE4)
     val Background = Color(0xFF0A0A0A)
 
+    // Whole lockup after the wordmark is shrunk and moved away from the mark.
     const val X0 = 162f
-    const val X1 = 925f
-    const val Y0 = 270f
-    const val Y1 = 380f
+    const val X1 = 815f
+    const val Y0 = 273f
+    const val Y1 = 373f
     const val MARK_X0 = 162f
     const val MARK_X1 = 275.4f
     const val MARK_CX = 218.7f
     const val MARK_CY = 322.8f
+
+    // The wordmark is drawn at WORD_SCALE of its original size, centred on the mark's height,
+    // with a clear gap after the mark. Its paths below are in the original (full-size) space.
+    const val WORD_SCALE = 0.78f
+    const val WORD_SRC_X0 = 323.1f
+    const val WORD_CY = 325f
+    const val WORD_X0 = MARK_X1 + 70f
 
     private const val MARK =
         "M185.46 372.09 Q376.37 333.44 162.00 273.56 Q307.87 329.85 185.46 372.09 Z"
@@ -71,13 +79,22 @@ fun AyuLogoLockup(modifier: Modifier = Modifier, height: Dp = 26.dp) {
             translate(-AyuLogo.X0, -AyuLogo.Y0)
         }) {
             drawPath(AyuLogo.mark, AyuLogo.MarkColor)
-            for (letter in AyuLogo.letters) drawPath(letter, AyuLogo.WordColor)
+            drawWord { for (letter in AyuLogo.letters) drawPath(letter, AyuLogo.WordColor) }
         }
     }
+}
+
+/** Runs [block] in the wordmark's own (smaller, shifted) space. */
+internal fun DrawScope.drawWord(block: DrawScope.() -> Unit) {
+    withTransform({
+        translate(AyuLogo.WORD_X0, AyuLogo.WORD_CY)
+        scale(AyuLogo.WORD_SCALE, AyuLogo.WORD_SCALE, Offset.Zero)
+        translate(-AyuLogo.WORD_SRC_X0, -AyuLogo.WORD_CY)
+    }, block)
 }
 
 internal fun DrawScope.drawLogoLetter(index: Int, alpha: Float) {
     val a = alpha.coerceIn(0f, 1f)
 
-    if (a > 0f) drawPath(AyuLogo.letters[index], AyuLogo.WordColor, alpha = a)
+    if (a > 0f) drawWord { drawPath(AyuLogo.letters[index], AyuLogo.WordColor, alpha = a) }
 }

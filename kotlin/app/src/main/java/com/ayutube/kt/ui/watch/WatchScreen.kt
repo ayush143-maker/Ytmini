@@ -77,6 +77,7 @@ import com.ayutube.kt.ui.components.VideoMenuSheet
 import com.ayutube.kt.ui.components.formatClock
 import com.ayutube.kt.ui.components.viewsText
 import com.ayutube.kt.ui.components.VideoCardSkeleton
+import androidx.compose.material3.HorizontalDivider
 import com.ayutube.kt.ui.theme.Ay
 import com.ayutube.kt.ui.theme.Sans
 import kotlinx.coroutines.delay
@@ -471,6 +472,7 @@ fun WatchScreen(
                         AyButton(
                             text = if (following) "Following" else "Follow",
                             primary = !following,
+                            horizontalPadding = 11.dp,
                             onClick = {
                                 if (video.channelId.isNotEmpty()) {
                                     scope.launch {
@@ -490,20 +492,20 @@ fun WatchScreen(
                         Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        AyButton(if (liked) "Liked" else "Like", primary = liked, onClick = {
+                        AyButton(if (liked) "Liked" else "Like", primary = liked, icon = AyIcons.Heart, onClick = {
                             scope.launch {
                                 if (liked) library.unlike(video.id) else library.like(video)
                                 liked = !liked
                             }
                         })
-                        AyButton(if (saved) "Saved" else "Watch later", primary = saved, onClick = {
+                        AyButton(if (saved) "Saved" else "Watch later", primary = saved, icon = AyIcons.Clock, onClick = {
                             scope.launch {
                                 if (saved) library.removeWatchLater(video.id) else library.addWatchLater(video)
                                 saved = !saved
                             }
                         })
-                        AyButton("Playlist", onClick = { menuOpen = true })
-                        AyButton("Share", onClick = {
+                        AyButton("Playlist", icon = AyIcons.PlaylistAdd, onClick = { menuOpen = true })
+                        AyButton("Share", icon = AyIcons.Share, onClick = {
                             val send = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
                                 putExtra(Intent.EXTRA_TEXT, "https://youtu.be/${video.id}")
@@ -627,16 +629,18 @@ fun WatchScreen(
                         "Up next",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 8.dp)
+                        modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 10.dp)
                     )
                 }
 
+                item { HorizontalDivider(color = Color.White.copy(alpha = 0.35f), thickness = 1.dp) }
+
                 if (session.related.isEmpty()) {
-                    items(3) { VideoCardSkeleton(Modifier.padding(top = 4.dp)) }
+                    items(3) { VideoCardSkeleton(Modifier.padding(top = 12.dp)) }
                 }
 
                 items(session.related, key = { "n-" + it.id }) { next ->
-                    VideoCard(next, modifier = Modifier.padding(top = 4.dp), onChannel = { onChannel(next) }) { onOpen(next) }
+                    VideoCard(next, modifier = Modifier.padding(top = 12.dp), onChannel = { onChannel(next) }) { onOpen(next) }
                 }
             }
         }

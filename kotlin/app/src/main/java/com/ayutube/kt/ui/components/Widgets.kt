@@ -39,6 +39,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ayutube.kt.R
@@ -265,25 +266,41 @@ fun ScreenTitle(text: String) {
 }
 
 @Composable
-fun AyButton(text: String, onClick: () -> Unit, primary: Boolean = false, modifier: Modifier = Modifier, danger: Boolean = false) {
+fun AyButton(
+    text: String,
+    onClick: () -> Unit,
+    primary: Boolean = false,
+    modifier: Modifier = Modifier,
+    danger: Boolean = false,
+    icon: ImageVector? = null,
+    horizontalPadding: Dp = 16.dp
+) {
     val shape = if (primary) Modifier.background(Ay.Pink) else Modifier.border(1.dp, Ay.Steel)
+    val tint = when {
+        primary -> Ay.Ink
+        danger -> Ay.Pink
+        else -> Ay.Paper
+    }
 
     Box(
-        modifier.then(shape).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier.then(shape).clickable(onClick = onClick).padding(horizontal = horizontalPadding, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text,
-            maxLines = 1,
-            softWrap = false,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            color = when {
-                primary -> Ay.Ink
-                danger -> Ay.Pink
-                else -> Ay.Paper
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(7.dp))
             }
-        )
+
+            Text(
+                text,
+                maxLines = 1,
+                softWrap = false,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = tint
+            )
+        }
     }
 }
 

@@ -7,6 +7,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -68,7 +70,10 @@ fun Modifier.shimmer(shape: Shape = RectangleShape): Modifier = composed {
 @Composable
 fun VideoCardSkeleton(modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth().padding(bottom = 18.dp)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).shimmer())
+        // Explicit 16:9 height, so the picture never stretches to fill the screen.
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            Box(Modifier.fillMaxWidth().height(maxWidth * 9f / 16f).shimmer())
+        }
 
         Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
             Box(Modifier.size(38.dp).shimmer(CircleShape))
@@ -85,8 +90,8 @@ fun VideoCardSkeleton(modifier: Modifier = Modifier) {
 /** A few video cards in a column, for a screen that has nothing to show yet. */
 @Composable
 fun VideoListSkeleton(modifier: Modifier = Modifier, count: Int = 3) {
-    Column(modifier.fillMaxWidth().clipToBounds()) {
-        repeat(count) { VideoCardSkeleton(Modifier.padding(top = 8.dp)) }
+    LazyColumn(modifier.fillMaxWidth(), userScrollEnabled = false) {
+        items(count) { VideoCardSkeleton(Modifier.padding(top = 8.dp)) }
     }
 }
 

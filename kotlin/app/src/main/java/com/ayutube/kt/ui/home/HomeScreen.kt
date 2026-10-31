@@ -71,10 +71,10 @@ fun HomeScreen(
     Column(Modifier.fillMaxSize()) {
         // Logo on top, the filter chips right below it.
         Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp),
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 0.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AyuLogoLockup(height = 26.dp)
+            AyuLogoLockup(height = 24.dp)
         }
 
         if (days != null && days >= 0) {
