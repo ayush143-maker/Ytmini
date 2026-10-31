@@ -54,9 +54,7 @@ fun BrandHeader() {
             Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Image(painterResource(R.drawable.brand_mark), contentDescription = null, modifier = Modifier.width(36.dp))
-            Spacer(Modifier.width(10.dp))
-            Text("ayutube", fontFamily = Script, fontSize = 34.sp, modifier = Modifier.padding(bottom = 4.dp))
+            AyuLogoLockup(height = 28.dp)
         }
         HorizontalDivider(color = Ay.Steel)
     }

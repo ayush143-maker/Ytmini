@@ -37,6 +37,8 @@ import com.ayutube.kt.data.VideoItem
 import com.ayutube.kt.ui.components.AyButton
 import com.ayutube.kt.ui.components.AyIcons
 import com.ayutube.kt.ui.components.VideoCard
+import com.ayutube.kt.ui.components.PlaylistHeaderSkeleton
+import com.ayutube.kt.ui.components.VideoCardSkeleton
 import com.ayutube.kt.ui.theme.Ay
 import kotlinx.coroutines.launch
 import org.schabi.newpipe.extractor.Page
@@ -115,11 +117,8 @@ fun PlaylistScreen(
 
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             if (detail == null && error == null) {
-                item {
-                    Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Ay.Pink)
-                    }
-                }
+                item { PlaylistHeaderSkeleton() }
+                items(3) { VideoCardSkeleton(Modifier.padding(top = 12.dp)) }
             }
 
             error?.let { item { Text(it, color = Ay.Pink, fontSize = 13.sp, modifier = Modifier.padding(16.dp)) } }
@@ -154,11 +153,7 @@ fun PlaylistScreen(
             }
 
             if (loadingMore) {
-                item {
-                    Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Ay.Pink, modifier = Modifier.size(24.dp))
-                    }
-                }
+                item { VideoCardSkeleton(Modifier.padding(top = 12.dp)) }
             }
         }
     }

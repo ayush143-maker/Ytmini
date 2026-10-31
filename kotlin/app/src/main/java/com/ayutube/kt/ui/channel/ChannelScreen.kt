@@ -46,6 +46,9 @@ import com.ayutube.kt.ui.components.AyIcons
 import com.ayutube.kt.ui.components.ChannelAvatar
 import com.ayutube.kt.ui.components.TabStrip
 import com.ayutube.kt.ui.components.VideoCard
+import com.ayutube.kt.ui.components.ChannelHeaderSkeleton
+import com.ayutube.kt.ui.components.PlaylistRowSkeleton
+import com.ayutube.kt.ui.components.VideoCardSkeleton
 import com.ayutube.kt.ui.theme.Ay
 import kotlinx.coroutines.launch
 import org.schabi.newpipe.extractor.Page
@@ -149,11 +152,8 @@ fun ChannelScreen(
             val info = detail
 
             if (info == null && error == null) {
-                item {
-                    Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Ay.Pink)
-                    }
-                }
+                item { ChannelHeaderSkeleton() }
+                items(3) { VideoCardSkeleton(Modifier.padding(top = 12.dp)) }
             }
 
             error?.let { item { Text(it, color = Ay.Pink, fontSize = 13.sp, modifier = Modifier.padding(16.dp)) } }
@@ -237,11 +237,7 @@ fun ChannelScreen(
                     val lists = playlists
 
                     if (lists == null) {
-                        item {
-                            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = Ay.Pink)
-                            }
-                        }
+                        items(4) { PlaylistRowSkeleton(140) }
                     } else if (lists.isEmpty()) {
                         item { Text("No playlists.", color = Ay.Fog, modifier = Modifier.padding(16.dp)) }
                     }
@@ -265,11 +261,7 @@ fun ChannelScreen(
                 }
 
                 if (loadingMore) {
-                    item {
-                        Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Ay.Pink, modifier = Modifier.size(24.dp))
-                        }
-                    }
+                    item { VideoCardSkeleton(Modifier.padding(top = 12.dp)) }
                 }
             }
         }

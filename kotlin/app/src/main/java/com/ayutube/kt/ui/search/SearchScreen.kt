@@ -39,6 +39,9 @@ import com.ayutube.kt.ui.components.ChannelAvatar
 import com.ayutube.kt.ui.components.SearchField
 import com.ayutube.kt.ui.components.TopicChips
 import com.ayutube.kt.ui.components.VideoCard
+import com.ayutube.kt.ui.components.ChannelRowSkeleton
+import com.ayutube.kt.ui.components.PlaylistRowSkeleton
+import com.ayutube.kt.ui.components.VideoCardSkeleton
 import com.ayutube.kt.ui.theme.Ay
 
 @Composable
@@ -71,12 +74,6 @@ fun SearchScreen(
 
         if (state.searched) {
             TopicChips(listOf("Videos", "Channels", "Playlists"), state.type, vm::setType)
-        }
-
-        if (state.loading) {
-            Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Ay.Pink)
-            }
         }
 
         state.error?.let {
@@ -123,24 +120,26 @@ fun SearchScreen(
                     }
                 }
             } else when (state.type) {
-                0 -> items(state.items, key = { it.id }) { video ->
-                    VideoCard(
-                        video = video,
-                        modifier = Modifier.padding(top = 8.dp),
-                        onMore = { onMore(video) },
-                        onChannel = { onChannel(video) }
-                    ) { onOpen(video) }
+                0 -> {
+                    if (state.loading) {
+                        items(3) { VideoCardSkeleton(Modifier.padding(top = 8.dp)) }
+                    }
+
+                    items(state.items, key = { it.id }) { video ->
+                        VideoCard(
+                            video = video,
+                            modifier = Modifier.padding(top = 8.dp),
+                            onMore = { onMore(video) },
+                            onChannel = { onChannel(video) }
+                        ) { onOpen(video) }
+                    }
                 }
 
                 1 -> {
                     val channels = state.channels
 
                     if (channels == null) {
-                        item {
-                            Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = Ay.Pink, modifier = Modifier.size(24.dp))
-                            }
-                        }
+                        items(6) { ChannelRowSkeleton() }
                     } else if (channels.isEmpty()) {
                         item { Text("No channels found.", color = Ay.Fog, modifier = Modifier.padding(16.dp)) }
                     }
@@ -171,11 +170,7 @@ fun SearchScreen(
                     val playlists = state.playlists
 
                     if (playlists == null) {
-                        item {
-                            Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = Ay.Pink, modifier = Modifier.size(24.dp))
-                            }
-                        }
+                        items(5) { PlaylistRowSkeleton(150) }
                     } else if (playlists.isEmpty()) {
                         item { Text("No playlists found.", color = Ay.Fog, modifier = Modifier.padding(16.dp)) }
                     }

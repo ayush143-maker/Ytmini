@@ -46,6 +46,7 @@ fun AppRoot() {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
     var stack by remember { mutableStateOf(listOf<Overlay>()) }
     var menuVideo by remember { mutableStateOf<VideoItem?>(null) }
+    var showSplash by rememberSaveable { mutableStateOf(true) }
 
     fun push(overlay: Overlay) {
         stack = stack + overlay
@@ -137,5 +138,8 @@ fun AppRoot() {
         menuVideo?.let { video ->
             VideoMenuSheet(video, onDismiss = { menuVideo = null }, onChannel = ::channel)
         }
+
+        // Opening animation, drawn over everything until it finishes.
+        if (showSplash) SplashOverlay(onDone = { showSplash = false })
     }
 }

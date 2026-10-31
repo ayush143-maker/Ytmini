@@ -97,15 +97,18 @@ fun VideoCard(
             )
 
             if (video.durationSec > 0) {
+                // Square badge in the bottom-right corner; it sits above the watched bar when there is one.
+                val lift = if (progress != null && progress > 0f) 3.dp else 0.dp
+
                 Text(
                     formatClock(video.durationSec),
                     color = Color.White,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     lineHeight = 14.sp,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 6.dp, bottom = 6.dp)
-                        .background(Color(0xCC000000), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = lift)
+                        .background(Color(0xE6000000))
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
                 )
             }
 

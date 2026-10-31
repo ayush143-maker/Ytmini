@@ -76,6 +76,7 @@ import com.ayutube.kt.ui.components.VideoCard
 import com.ayutube.kt.ui.components.VideoMenuSheet
 import com.ayutube.kt.ui.components.formatClock
 import com.ayutube.kt.ui.components.viewsText
+import com.ayutube.kt.ui.components.VideoCardSkeleton
 import com.ayutube.kt.ui.theme.Ay
 import com.ayutube.kt.ui.theme.Sans
 import kotlinx.coroutines.delay
@@ -631,11 +632,7 @@ fun WatchScreen(
                 }
 
                 if (session.related.isEmpty()) {
-                    item {
-                        Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Ay.Pink, modifier = Modifier.size(24.dp))
-                        }
-                    }
+                    items(3) { VideoCardSkeleton(Modifier.padding(top = 4.dp)) }
                 }
 
                 items(session.related, key = { "n-" + it.id }) { next ->

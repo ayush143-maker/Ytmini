@@ -28,6 +28,8 @@ import com.ayutube.kt.AyuApp
 import com.ayutube.kt.data.Study
 import com.ayutube.kt.data.VideoItem
 import com.ayutube.kt.ui.components.AyButton
+import com.ayutube.kt.ui.components.AyuLogoLockup
+import com.ayutube.kt.ui.components.VideoListSkeleton
 import com.ayutube.kt.ui.components.TopicChips
 import com.ayutube.kt.ui.components.VideoCard
 import com.ayutube.kt.ui.theme.Ay
@@ -67,6 +69,14 @@ fun HomeScreen(
     val days = if (settings.studyMode) Study.daysUntil(profile.examDate) else null
 
     Column(Modifier.fillMaxSize()) {
+        // Logo on top, the filter chips right below it.
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AyuLogoLockup(height = 26.dp)
+        }
+
         if (days != null && days >= 0) {
             Row(
                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp),
@@ -97,20 +107,18 @@ fun HomeScreen(
             Text(it, color = Ay.Fog, fontSize = 14.sp, modifier = Modifier.padding(24.dp))
         }
 
-        if (state.loading) {
-            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Ay.Pink)
-            }
-        }
-
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-            items(state.items, key = { it.id }) { video ->
-                VideoCard(
-                    video = video,
-                    modifier = Modifier.padding(top = 8.dp),
-                    onMore = { onMore(video) },
-                    onChannel = { onChannel(video) }
-                ) { onOpen(video) }
+        if (state.loading && state.items.isEmpty()) {
+            VideoListSkeleton(Modifier.weight(1f))
+        } else {
+            LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
+                items(state.items, key = { it.id }) { video ->
+                    VideoCard(
+                        video = video,
+                        modifier = Modifier.padding(top = 8.dp),
+                        onMore = { onMore(video) },
+                        onChannel = { onChannel(video) }
+                    ) { onOpen(video) }
+                }
             }
         }
     }
