@@ -99,7 +99,7 @@ fun HomeScreen(
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 6.dp, top = 12.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AyuLogoLockup(height = 28.dp)
+            AyuLogoLockup(height = 32.dp)
             Spacer(Modifier.weight(1f))
             Box(Modifier.size(44.dp).clickable(onClick = onSearch), contentAlignment = Alignment.Center) {
                 Icon(AyIcons.Search, contentDescription = "Search", tint = Ay.Paper, modifier = Modifier.size(26.dp))

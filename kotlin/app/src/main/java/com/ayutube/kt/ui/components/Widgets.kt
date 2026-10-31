@@ -128,6 +128,73 @@ fun TopicChips(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
     }
 }
 
+/** A Library-style row: icon, title, a small line under it, optional chevron, thin divider. */
+@Composable
+fun SlitRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    danger: Boolean = false,
+    chevron: Boolean = true,
+    onClick: (() -> Unit)? = null
+) {
+    Column(
+        Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = null, tint = if (danger) Ay.Pink else Ay.Paper, modifier = Modifier.size(24.dp))
+
+            Column(Modifier.weight(1f).padding(horizontal = 18.dp)) {
+                Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = if (danger) Ay.Pink else Ay.Paper)
+
+                if (subtitle != null) Text(subtitle, fontSize = 12.sp, color = Ay.Dim)
+            }
+
+            if (chevron && onClick != null) {
+                Icon(AyIcons.Chevron, contentDescription = null, tint = Ay.Dim, modifier = Modifier.size(20.dp))
+            }
+        }
+
+        HorizontalDivider(color = Ay.Steel, modifier = Modifier.padding(start = 58.dp))
+    }
+}
+
+/** The same row with an on/off switch at the end. */
+@Composable
+fun SlitSwitchRow(icon: ImageVector, title: String, copy: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable { onChange(!checked) }) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = null, tint = Ay.Paper, modifier = Modifier.size(24.dp))
+
+            Column(Modifier.weight(1f).padding(horizontal = 18.dp)) {
+                Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Ay.Paper)
+                Text(copy, fontSize = 12.sp, color = Ay.Dim)
+            }
+
+            Switch(
+                checked = checked,
+                onCheckedChange = onChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = Ay.Pink,
+                    checkedBorderColor = Ay.Pink,
+                    uncheckedThumbColor = Ay.Fog,
+                    uncheckedTrackColor = Ay.Steel,
+                    uncheckedBorderColor = Ay.SteelHi
+                )
+            )
+        }
+
+        HorizontalDivider(color = Ay.Steel, modifier = Modifier.padding(start = 58.dp))
+    }
+}
+
 /** Home's pill-shaped topic chips with a filter button on the right. */
 @Composable
 fun FilterChipRow(

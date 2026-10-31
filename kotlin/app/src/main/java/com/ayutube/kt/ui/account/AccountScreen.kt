@@ -1,5 +1,10 @@
 package com.ayutube.kt.ui.account
 
+import androidx.compose.foundation.layout.Box
+import com.ayutube.kt.ui.components.AyIcons
+import com.ayutube.kt.ui.components.SectionHead
+import com.ayutube.kt.ui.components.SlitRow
+import com.ayutube.kt.ui.components.SlitSwitchRow
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -86,69 +91,69 @@ fun AccountScreen() {
         }
     }
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 20.dp)
-    ) {
-        ScreenTitle("Account")
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        Box(Modifier.padding(horizontal = 16.dp)) { ScreenTitle("Account") }
 
-        Panel {
-            PanelTitle("Your data")
+        Text(
+            "Stored only on this phone. There is no account and nothing is synced.",
+            color = Ay.Fog,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+
+        stats?.let {
             Text(
-                "Stored only on this phone. There is no account and nothing is synced.",
-                color = Ay.Fog,
-                fontSize = 13.sp
+                "${it.history} watched \u00B7 ${it.playlists} playlists \u00B7 ${it.watchLater} watch later \u00B7 " +
+                    "${it.likes} liked \u00B7 ${it.following} following",
+                color = Ay.Dim,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)
             )
-            stats?.let {
-                Text(
-                    "${it.history} watched \u00B7 ${it.playlists} playlists \u00B7 ${it.watchLater} watch later \u00B7 " +
-                        "${it.likes} liked \u00B7 ${it.following} following",
-                    color = Ay.Fog,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-            }
-            Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AyButton("Export", primary = true, onClick = {
-                    exporter.launch("ayutube-backup-${LocalDate.now()}.json")
-                })
-                AyButton("Import", onClick = { importer.launch(arrayOf("application/json", "*/*")) })
-                AyButton("Erase", danger = true, onClick = { confirmErase = true })
-            }
-            message?.let { Text(it, color = Ay.Bone, modifier = Modifier.padding(top = 12.dp)) }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Box(Modifier.padding(horizontal = 16.dp)) { SectionHead("Your data") }
+
+        SlitRow(AyIcons.Share, "Export backup", "Save your library as a file") {
+            exporter.launch("ayutube-backup-${LocalDate.now()}.json")
+        }
+        SlitRow(AyIcons.Download, "Import backup", "Load a backup file") {
+            importer.launch(arrayOf("application/json", "*/*"))
+        }
+        SlitRow(AyIcons.Trash, "Erase all data", "Remove history, playlists, likes and follows", danger = true) {
+            confirmErase = true
+        }
+
+        message?.let { Text(it, color = Ay.Bone, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) }
+
+        Box(Modifier.padding(horizontal = 16.dp)) { SectionHead("Study") }
 
         StudyPanel()
 
-        Spacer(Modifier.height(16.dp))
+        Box(Modifier.padding(horizontal = 16.dp)) { SectionHead("Preferences") }
 
-        Panel {
-            PanelTitle("Preferences")
-            SwitchRow("Pause history", "Watched videos are not saved.", settings.pauseHistory) { on ->
-                container.settings.update { it.copy(pauseHistory = on) }
-            }
-            SwitchRow("Autoplay next video", "Play the next video when one ends.", settings.autoplayNext) { on ->
-                container.settings.update { it.copy(autoplayNext = on) }
-            }
-            SwitchRow("Skip sponsor segments", "Skips sponsor and self-promotion parts (SponsorBlock).", settings.sponsorBlock) { on ->
-                container.settings.update { it.copy(sponsorBlock = on) }
-            }
-            SwitchRow("Clean controls", "Hide extra buttons on the player.", settings.cleanControls) { on ->
-                container.settings.update { it.copy(cleanControls = on) }
-            }
+        SlitSwitchRow(AyIcons.History, "Pause history", "Watched videos are not saved.", settings.pauseHistory) { on ->
+            container.settings.update { it.copy(pauseHistory = on) }
+        }
+        SlitSwitchRow(AyIcons.Play, "Autoplay next video", "Play the next video when one ends.", settings.autoplayNext) { on ->
+            container.settings.update { it.copy(autoplayNext = on) }
+        }
+        SlitSwitchRow(AyIcons.Forward, "Skip sponsor segments", "Skips sponsor and self-promotion parts.", settings.sponsorBlock) { on ->
+            container.settings.update { it.copy(sponsorBlock = on) }
+        }
+        SlitSwitchRow(AyIcons.Minimize, "Clean controls", "Hide extra buttons on the player.", settings.cleanControls) { on ->
+            container.settings.update { it.copy(cleanControls = on) }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Box(Modifier.padding(horizontal = 16.dp)) { SectionHead("About") }
 
-        Panel {
-            PanelTitle("About")
-            Text(
-                "AyuTube is free software under the GNU GPL v3, modelled on LibreTube and powered by NewPipeExtractor.",
-                color = Ay.Fog
-            )
-        }
+        SlitRow(
+            AyIcons.Info,
+            "AyuTube",
+            "Free software under the GNU GPL v3, modelled on LibreTube and powered by NewPipeExtractor.",
+            chevron = false
+        )
+
+        Spacer(Modifier.height(24.dp))
     }
 
     if (confirmErase) {

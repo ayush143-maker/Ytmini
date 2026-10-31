@@ -1,5 +1,17 @@
 package com.ayutube.kt.ui.search
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import com.ayutube.kt.ui.theme.Sans
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +67,12 @@ fun SearchScreen(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    val focus = LocalFocusManager.current
+    val requester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        if (!vm.state.value.searched && vm.state.value.query.isBlank()) runCatching { requester.requestFocus() }
+    }
 
     val nearEnd by remember {
         derivedStateOf {
@@ -68,9 +86,15 @@ fun SearchScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Box(Modifier.padding(16.dp)) {
-            SearchField(state.query, vm::onQueryChange, onSearch = { vm.search() })
-        }
+        UnderlineSearchField(
+            value = state.query,
+            onValueChange = vm::onQueryChange,
+            onSearch = {
+                focus.clearFocus()
+                vm.search()
+            },
+            requester = requester
+        )
 
         if (state.searched) {
             TopicChips(listOf("Videos", "Channels", "Playlists"), state.type, vm::setType)
@@ -82,40 +106,50 @@ fun SearchScreen(
 
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             if (!state.searched) {
-                val rows = if (state.query.isBlank()) state.recents else state.suggestions
-
-                if (state.query.isBlank() && rows.isNotEmpty()) {
-                    item {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Recent searches", fontWeight = FontWeight.SemiBold)
-                            Text("Clear", color = Ay.Bone, fontSize = 13.sp, modifier = Modifier.clickable { vm.clearRecents() })
-                        }
-                    }
-                }
+                val showingRecents = state.query.isBlank()
+                val rows = if (showingRecents) state.recents else state.suggestions
 
                 items(rows, key = { "s-$it" }) { text ->
                     Row(
-                        Modifier.fillMaxWidth().clickable { vm.search(text) }.padding(horizontal = 16.dp, vertical = 12.dp),
+                        Modifier.fillMaxWidth().height(54.dp)
+                            .clickable {
+                                focus.clearFocus()
+                                vm.search(text)
+                            }
+                            .padding(start = 16.dp, end = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            if (state.query.isBlank()) AyIcons.History else AyIcons.Search,
+                            if (showingRecents) AyIcons.History else AyIcons.Search,
                             contentDescription = null,
-                            tint = Ay.Fog,
-                            modifier = Modifier.size(20.dp)
+                            tint = Ay.Bone,
+                            modifier = Modifier.size(24.dp)
                         )
-                        Text(text, modifier = Modifier.weight(1f).padding(horizontal = 14.dp), fontSize = 15.sp, maxLines = 1)
+                        Text(
+                            text,
+                            modifier = Modifier.weight(1f).padding(horizontal = 18.dp),
+                            fontSize = 17.sp,
+                            maxLines = 1
+                        )
 
-                        if (state.query.isBlank()) {
-                            Icon(
-                                AyIcons.Close,
-                                contentDescription = "Remove",
-                                tint = Ay.Dim,
-                                modifier = Modifier.size(18.dp).clickable { vm.removeRecent(text) }
-                            )
+                        if (showingRecents) {
+                            Box(
+                                Modifier.size(44.dp).clickable { vm.removeRecent(text) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(AyIcons.Close, contentDescription = "Remove", tint = Ay.Paper, modifier = Modifier.size(20.dp))
+                            }
+                        }
+
+                        // Puts the text in the box so it can be edited before searching.
+                        Box(
+                            Modifier.size(44.dp).clickable {
+                                vm.onQueryChange(text)
+                                runCatching { requester.requestFocus() }
+                            },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(AyIcons.ArrowUpLeft, contentDescription = "Use", tint = Ay.Paper, modifier = Modifier.size(22.dp))
                         }
                     }
                 }
@@ -200,6 +234,46 @@ fun SearchScreen(
                 }
             }
         }
+    }
+}
+
+/** Search icon, the text, and a thin line under it. No box and no back button. */
+@Composable
+private fun UnderlineSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onSearch: () -> Unit,
+    requester: FocusRequester
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(AyIcons.Search, contentDescription = null, tint = Ay.Fog, modifier = Modifier.size(24.dp))
+
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = TextStyle(fontFamily = Sans, fontSize = 18.sp, color = Ay.Paper),
+                cursorBrush = SolidColor(Ay.Pink),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                modifier = Modifier.weight(1f).padding(horizontal = 14.dp).focusRequester(requester),
+                decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (value.isEmpty()) Text("Search ayutube", color = Ay.Dim, fontSize = 18.sp)
+                        inner()
+                    }
+                }
+            )
+
+            if (value.isNotEmpty()) {
+                Box(Modifier.size(40.dp).clickable { onValueChange("") }, contentAlignment = Alignment.Center) {
+                    Icon(AyIcons.Close, contentDescription = "Clear", tint = Ay.Fog, modifier = Modifier.size(20.dp))
+                }
+            }
+        }
+
+        HorizontalDivider(color = Ay.SteelHi)
     }
 }
 

@@ -64,6 +64,10 @@ object AyIcons {
     val Playlist = lucide("playlist", "M3 6h18", "M3 12h8", "M3 18h8", "M15 11v8l6-4z")
     val PlaylistAdd = lucide("playlist-add", "M11 12H3", "M16 6H3", "M16 18H3", "M18 9v6", "M21 12h-6")
     val Sliders = lucide("sliders", "M21 4h-7", "M10 4H3", "M21 12h-9", "M8 12H3", "M21 20h-5", "M12 20H3", "M14 2v4", "M8 10v4", "M16 18v4")
+    val ArrowUpLeft = lucide("arrow-up-left", "M7 17V7h10", "M17 17 7 7")
+    val Download = lucide("download", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "m7 10 5 5 5-5", "M12 15V3")
+    val Trash = lucide("trash", "M3 6h18", "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2", "M10 11v6", "M14 11v6")
+    val Info = lucide("info", circle(12f, 12f, 10f), "M12 16v-4", "M12 8h.01")
     val History = lucide("history", "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5", "M12 7v5l4 2")
     val People = lucide(
         "people",

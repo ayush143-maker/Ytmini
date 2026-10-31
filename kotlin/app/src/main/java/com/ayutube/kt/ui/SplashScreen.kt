@@ -1,5 +1,6 @@
 package com.ayutube.kt.ui
 
+import com.ayutube.kt.ui.components.drawMascot
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -62,8 +63,8 @@ fun SplashOverlay(onDone: () -> Unit) {
         Canvas(Modifier.fillMaxSize()) {
             val s = slide.value
             val markWidth = AyuLogo.MARK_X1 - AyuLogo.MARK_X0
-            val startScale = size.width * 0.22f / markWidth
-            val endScale = size.width * 0.55f / AyuLogo.WIDTH
+            val startScale = size.width * 0.26f / markWidth
+            val endScale = size.width * 0.66f / AyuLogo.WIDTH
             val k = (startScale + (endScale - startScale) * s) * (0.75f + 0.25f * appear.value)
 
             // The point of the logo in the middle of the screen: the mark first, the whole lockup at the end.
@@ -77,7 +78,7 @@ fun SplashOverlay(onDone: () -> Unit) {
                 scale(k, k, Offset.Zero)
                 translate(-cx, -cy)
             }) {
-                drawPath(AyuLogo.mark, AyuLogo.MarkColor, alpha = appear.value)
+                drawMascot(appear.value)
 
                 for (i in 0 until LETTERS) drawLogoLetter(i, typed.value - i)
             }

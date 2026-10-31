@@ -1,5 +1,6 @@
 package com.ayutube.kt.ui.components
 
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
@@ -24,16 +25,18 @@ object AyuLogo {
     val MarkColor = Color(0xFFFF2D5F)
     val WordColor = Color(0xFFF4EEE4)
     val Background = Color(0xFF0A0A0A)
+    val MascotTop = Color(0xFFFFF5F7)
+    val MascotBottom = Color(0xFFFFDBE3)
 
     // Whole lockup after the wordmark is shrunk and moved away from the mark.
     const val X0 = 162f
-    const val X1 = 719f
-    const val Y0 = 273f
-    const val Y1 = 373f
+    const val X1 = 710f
+    const val Y0 = 268f
+    const val Y1 = 378f
     const val MARK_X0 = 162f
-    const val MARK_X1 = 275.4f
-    const val MARK_CX = 218.7f
-    const val MARK_CY = 322.8f
+    const val MARK_X1 = 267.2f
+    const val MARK_CX = 214.5f
+    const val MARK_CY = 323f
 
     // The wordmark is drawn at WORD_SCALE of its original size, centred on the mark's height,
     // with a clear gap after the mark. Its paths below are in the original (full-size) space.
@@ -42,8 +45,8 @@ object AyuLogo {
     const val WORD_CY = 325f
     const val WORD_X0 = MARK_X1 + 70f
 
-    private const val MARK =
-        "M185.46 372.09 Q376.37 333.44 162.00 273.56 Q307.87 329.85 185.46 372.09 Z"
+    private const val MASCOT =
+        "M202.9 377.6L201.3 377.5L200.5 376.9L195.8 369.7L194.8 368.7L187.4 368.5L186.3 368.2L184.5 368.2L181.5 367.5L178.7 366.5L175.3 364.7L171.6 362.1L168.6 359.1L165.9 355.3L163.8 351.2L163.1 349.2L162.5 345.9L162.1 343.0L161.8 334.0L161.8 319.7L162.1 310.8L162.4 307.8L163.1 304.6L164.2 301.8L166.9 297.0L169.6 293.7L172.5 291.0L175.6 288.9L178.7 287.4L179.4 286.7L181.6 282.2L183.9 278.5L187.0 274.2L188.3 273.1L189.4 272.7L190.5 272.7L191.7 272.7L192.7 273.1L200.4 279.8L200.9 279.6L202.0 277.9L203.0 276.8L205.8 274.4L210.8 271.2L215.3 268.7L217.0 268.4L218.7 268.7L219.5 269.2L220.9 270.5L222.0 272.9L226.5 283.9L227.2 284.7L228.2 285.1L236.7 285.2L242.4 285.5L246.6 286.1L250.0 287.2L254.4 289.5L256.5 291.0L258.9 293.0L261.4 295.9L263.5 299.0L264.9 301.8L265.9 304.6L266.9 310.6L267.2 318.3L267.2 333.8L266.9 343.0L266.5 345.9L265.9 349.2L264.8 352.0L263.5 354.6L261.5 357.7L258.9 360.7L255.8 363.4L253.7 364.8L249.7 366.7L248.9 367.2L244.7 374.5L243.7 375.4L242.1 375.5L241.1 374.8L238.0 369.3L237.2 368.6L208.0 368.6L207.0 369.3L204.2 376.5ZM200.1 348.3L203.1 348.0L206.4 347.0L208.5 346.0L211.3 343.9L213.5 341.3L215.3 338.2L216.3 335.1L216.6 332.6L216.6 330.9L215.9 327.2L214.5 323.8L213.1 321.8L202.6 324.4L184.1 329.1L183.6 329.8L183.6 333.5L184.3 336.6L185.4 339.3L187.4 342.4L189.7 344.6L191.7 346.0L193.8 347.0L197.0 348.0ZM240.4 348.3L243.4 348.0L246.6 347.0L249.7 345.3L252.4 343.0L254.4 340.2L255.8 337.4L256.5 335.1L256.8 331.1L256.5 328.4L255.9 327.7L239.8 327.7L224.4 327.8L224.1 328.1L223.8 330.0L223.8 333.2L224.1 335.4L225.5 339.2L227.5 342.3L229.6 344.3L231.9 346.0L234.8 347.4L237.3 348.0Z"
 
     private val LETTER_DATA = listOf(
         "M358.5 359.2L344.4 358.9L336.8 357.9L332.5 356.6L330.1 355.3L328.8 354.3L326.4 351.9L325.2 350.0L324.2 347.9L323.3 343.2L323.1 340.1L323.3 336.6L324.2 332.0L325.2 329.6L326.9 326.8L329.5 324.5L334.0 322.3L338.7 321.2L343.2 320.9L348.8 320.2L371.6 320.1L377.0 320.2L384.8 321.3L385.7 321.2L386.2 320.8L386.4 319.8L385.9 311.5L384.8 307.8L383.4 305.1L382.0 303.6L379.4 302.1L377.2 301.3L376.0 301.0L361.9 300.3L348.6 300.8L342.9 301.2L340.6 302.2L338.7 303.6L337.7 305.5L336.6 309.4L335.7 309.9L334.8 310.0L327.7 309.9L326.5 309.5L326.1 308.1L326.1 306.3L327.2 301.4L329.1 297.6L330.9 295.9L333.6 294.2L336.2 293.2L341.1 292.1L351.1 291.1L367.6 291.0L373.5 291.1L380.1 292.2L386.4 294.3L388.5 295.3L389.5 296.1L392.7 299.2L394.6 302.6L395.7 305.4L396.8 309.9L397.7 320.0L397.9 355.2L397.7 357.1L397.1 357.7L396.1 357.9L388.1 357.9L387.2 357.4L386.4 355.3L385.6 354.9L381.4 356.8L377.6 357.9L374.8 358.1L370.8 358.9ZM375.6 349.9L378.1 349.7L382.4 348.7L384.2 347.4L385.7 345.6L386.7 339.4L386.7 330.7L386.3 329.6L385.4 329.1L382.9 329.0L348.1 329.0L342.8 329.1L338.9 330.1L337.2 331.1L335.7 332.8L335.0 334.6L334.4 338.1L334.5 341.5L335.2 345.4L336.3 347.4L337.0 348.0L338.4 348.8L342.8 349.9Z",
@@ -55,7 +58,8 @@ object AyuLogo {
         "M900.8 358.9L876.7 358.9L874.0 358.7L868.4 357.9L861.7 355.7L859.3 354.6L856.5 352.8L854.5 350.9L853.5 349.7L852.2 347.6L850.4 343.4L849.1 338.8L848.1 330.2L848.2 317.9L849.2 310.4L850.2 306.6L852.4 301.6L853.2 300.4L855.5 297.9L857.5 296.1L860.6 294.4L863.6 293.2L867.5 292.2L870.8 291.8L874.1 291.2L887.2 290.8L900.3 291.1L907.1 292.2L911.3 293.3L915.8 295.3L917.9 296.6L921.1 299.6L922.7 302.3L923.8 304.7L924.7 308.1L925.0 314.3L924.9 326.6L924.6 327.5L923.5 327.9L861.9 328.0L860.2 328.2L859.4 329.0L859.3 330.9L860.1 338.8L861.3 342.0L862.0 343.4L864.1 345.6L866.0 346.8L868.2 347.8L873.5 348.8L886.6 349.3L901.1 349.3L907.7 348.9L910.9 347.7L912.8 346.2L913.8 344.4L914.9 339.5L915.6 338.4L916.9 338.1L922.9 338.1L924.3 338.4L924.8 339.1L924.9 339.9L924.9 343.2L923.8 347.7L921.7 351.5L920.0 353.3L916.6 355.7L914.1 356.8L910.2 357.9L907.0 358.1L903.8 358.8ZM913.2 319.1L914.0 318.5L914.3 317.1L914.3 314.5L913.7 307.7L912.9 305.9L911.7 304.2L910.6 303.4L908.6 302.3L904.9 301.2L894.0 300.2L881.3 300.2L871.7 301.0L867.2 302.1L864.8 303.2L863.9 303.7L861.8 306.0L860.1 310.2L859.5 315.2L859.5 317.9L859.8 318.6L860.5 319.1L861.7 319.2L910.1 319.3Z"
     )
 
-    val mark: Path by lazy { PathParser().parsePathString(MARK).toPath() }
+    /** The mascot: one outline with two eye holes (even-odd fill), so the eyes show what is behind it. */
+    val mark: Path by lazy { PathParser().parsePathString(MASCOT).toPath().apply { fillType = PathFillType.EvenOdd } }
 
     /** One path per letter: a y u t u b e. */
     val letters: List<Path> by lazy {
@@ -78,7 +82,7 @@ fun AyuLogoLockup(modifier: Modifier = Modifier, height: Dp = 26.dp) {
             scale(k, k, Offset.Zero)
             translate(-AyuLogo.X0, -AyuLogo.Y0)
         }) {
-            drawPath(AyuLogo.mark, AyuLogo.MarkColor)
+            drawMascot()
             drawWord { for (letter in AyuLogo.letters) drawPath(letter, AyuLogo.WordColor) }
         }
     }
@@ -97,4 +101,17 @@ internal fun DrawScope.drawLogoLetter(index: Int, alpha: Float) {
     val a = alpha.coerceIn(0f, 1f)
 
     if (a > 0f) drawWord { drawPath(AyuLogo.letters[index], AyuLogo.WordColor, alpha = a) }
+}
+
+/** The mascot in white with a faint pink at the bottom, on whatever is behind it (never a pink tile). */
+internal fun DrawScope.drawMascot(alpha: Float = 1f) {
+    drawPath(
+        AyuLogo.mark,
+        Brush.verticalGradient(
+            listOf(AyuLogo.MascotTop, AyuLogo.MascotBottom),
+            startY = AyuLogo.Y0,
+            endY = AyuLogo.Y1
+        ),
+        alpha = alpha
+    )
 }

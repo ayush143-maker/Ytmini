@@ -493,8 +493,8 @@ fun WatchScreen(
 
                 item {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                        Modifier.fillMaxWidth().padding(start = 7.dp, top = 2.dp, bottom = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         ActionIcon(AyIcons.Heart, "Like", active = liked) {
                             scope.launch {
@@ -748,7 +748,7 @@ private fun ActionIcon(icon: ImageVector, label: String, active: Boolean, onClic
     }
 
     Box(
-        Modifier.size(52.dp).clip(CircleShape).clickable {
+        Modifier.size(40.dp).clip(CircleShape).clickable {
             flash = true
             onClick()
         },
@@ -758,7 +758,7 @@ private fun ActionIcon(icon: ImageVector, label: String, active: Boolean, onClic
             icon,
             contentDescription = label,
             tint = if (active || flash) Ay.Pink else Ay.Paper,
-            modifier = Modifier.size(26.dp)
+            modifier = Modifier.size(22.dp)
         )
     }
 }

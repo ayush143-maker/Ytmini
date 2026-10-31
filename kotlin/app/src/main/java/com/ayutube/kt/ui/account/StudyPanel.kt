@@ -1,5 +1,9 @@
 package com.ayutube.kt.ui.account
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import com.ayutube.kt.ui.components.AyIcons
+import com.ayutube.kt.ui.components.SlitSwitchRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -52,19 +56,18 @@ fun StudyPanel() {
         Text(text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
     }
 
-    Panel {
-        PanelTitle("Study mode")
-        Text(
-            "Videos for your exam and subjects, a countdown on Home, and notes while you watch.",
-            color = Ay.Fog,
-            fontSize = 13.sp
-        )
-
-        SwitchRow("Study mode", "Turn on to set up your exam.", settings.studyMode) { on ->
+    Column(Modifier.fillMaxWidth()) {
+        SlitSwitchRow(
+            AyIcons.Library,
+            "Study mode",
+            "Exam videos, a countdown on Home and notes while you watch.",
+            settings.studyMode
+        ) { on ->
             container.settings.update { it.copy(studyMode = on) }
         }
 
         if (settings.studyMode) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
             label("Your exam")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (exam in Study.exams) {
@@ -153,6 +156,7 @@ fun StudyPanel() {
             }
 
             message?.let { Text(it, color = Ay.Bone, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp)) }
+            }
         }
     }
 }
