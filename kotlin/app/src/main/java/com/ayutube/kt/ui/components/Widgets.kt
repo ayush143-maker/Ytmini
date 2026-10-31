@@ -26,6 +26,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -225,27 +227,43 @@ fun SectionHead(title: String, action: String? = null, onAction: () -> Unit = {}
     }
 }
 
-/** The web's square on/off switch. */
+/** An on/off row with a normal round switch. */
 @Composable
 fun SwitchRow(title: String, copy: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(vertical = 14.dp),
+        Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f).padding(end = 16.dp)) {
             Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text(copy, color = Ay.Fog, fontSize = 13.sp)
         }
-        Box(
-            Modifier.width(48.dp).height(30.dp).background(Ay.Ink)
-                .border(1.5.dp, if (checked) Ay.Pink else Ay.Steel)
-        ) {
-            Box(
-                Modifier.offset(x = if (checked) 21.dp else 3.dp, y = 3.dp).size(22.dp, 22.dp)
-                    .background(if (checked) Ay.Pink else Ay.Fog)
+
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = Ay.Pink,
+                checkedBorderColor = Ay.Pink,
+                uncheckedThumbColor = Ay.Fog,
+                uncheckedTrackColor = Ay.Steel,
+                uncheckedBorderColor = Ay.SteelHi
             )
-        }
+        )
     }
+}
+
+/** The big title at the top of Library and Account. */
+@Composable
+fun ScreenTitle(text: String) {
+    Text(
+        text,
+        fontSize = 32.sp,
+        fontWeight = FontWeight.ExtraBold,
+        lineHeight = 38.sp,
+        modifier = Modifier.padding(top = 24.dp, bottom = 14.dp)
+    )
 }
 
 @Composable

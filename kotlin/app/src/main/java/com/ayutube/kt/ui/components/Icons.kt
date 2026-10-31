@@ -72,6 +72,7 @@ object AyIcons {
     )
     val Close = lucide("close", "M18 6 6 18", "m6 6 12 12")
     val Back = lucide("back", "m12 19-7-7 7-7", "M19 12H5")
+    val Chevron = lucide("chevron", "m9 18 6-6-6-6")
     val Play = lucide("play", "m6 3 14 9-14 9z")
     val Pause = lucide("pause", "M14 4h4v16h-4z", "M6 4h4v16H6z")
     val Replay = lucide("replay", "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5")

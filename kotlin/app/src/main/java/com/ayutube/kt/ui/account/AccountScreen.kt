@@ -32,6 +32,7 @@ import com.ayutube.kt.data.db.LibraryStats
 import com.ayutube.kt.ui.components.AyButton
 import com.ayutube.kt.ui.components.Panel
 import com.ayutube.kt.ui.components.PanelTitle
+import com.ayutube.kt.ui.components.ScreenTitle
 import com.ayutube.kt.ui.components.SwitchRow
 import com.ayutube.kt.ui.theme.Ay
 import kotlinx.coroutines.launch
@@ -88,8 +89,7 @@ fun AccountScreen() {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 20.dp)
     ) {
-        Text("Account", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(16.dp))
+        ScreenTitle("Account")
 
         Panel {
             PanelTitle("Your data")

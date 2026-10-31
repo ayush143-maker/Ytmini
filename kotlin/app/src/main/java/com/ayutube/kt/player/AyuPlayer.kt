@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackParameters
@@ -18,6 +19,9 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.source.SingleSampleMediaSource
+import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.extractor.text.DefaultSubtitleParserFactory
+import androidx.media3.extractor.text.SubtitleExtractor
 import okhttp3.OkHttpClient
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
@@ -112,15 +116,23 @@ class AyuPlayer(context: Context) {
     ) {
         val video = source(option.video.content, meta)
 
-        val subtitles = captions.map { caption ->
-            val configuration = MediaItem.SubtitleConfiguration.Builder(Uri.parse(caption.url))
-                .setMimeType(caption.mime)
-                .setLanguage(caption.language)
-                .setLabel(caption.label)
-                .setSelectionFlags(0)
-                .build()
+        val parsers = DefaultSubtitleParserFactory()
 
-            SingleSampleMediaSource.Factory(dataFactory).createMediaSource(configuration, C.TIME_UNSET)
+        val subtitles = captions.mapNotNull { caption ->
+            try {
+                val format = Format.Builder()
+                    .setSampleMimeType(caption.mime)
+                    .setLanguage(caption.language)
+                    .setLabel(caption.label)
+                    .setSelectionFlags(0)
+                    .build()
+                val extractors = ExtractorsFactory { arrayOf(SubtitleExtractor(parsers.create(format), format)) }
+
+                ProgressiveMediaSource.Factory(dataFactory, extractors)
+                    .createMediaSource(MediaItem.fromUri(Uri.parse(caption.url)))
+            } catch (_: Exception) {
+                null
+            }
         }
 
         val parts = mutableListOf(video)

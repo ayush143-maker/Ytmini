@@ -18,7 +18,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,12 +56,15 @@ import com.ayutube.kt.ui.components.AyField
 import com.ayutube.kt.ui.components.AyIcons
 import com.ayutube.kt.ui.components.ChannelAvatar
 import com.ayutube.kt.ui.components.MenuRow
+import com.ayutube.kt.ui.components.ScreenTitle
 import com.ayutube.kt.ui.components.SectionHead
 import com.ayutube.kt.ui.components.TabStrip
 import com.ayutube.kt.ui.components.VideoCard
 import com.ayutube.kt.ui.theme.Ay
 import com.ayutube.kt.ui.theme.Sans
 import kotlinx.coroutines.launch
+
+private class Entry(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val target: Int, val count: Int)
 
 private val SECTIONS = listOf("Overview", "Playlists", "Watch later", "Liked", "History", "Following")
 
@@ -126,6 +132,10 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
     var renaming by remember { mutableStateOf<String?>(null) }
     var menuFor by remember { mutableStateOf<Pair<VideoItem, String>?>(null) }
 
+    BackHandler(enabled = section != 0) {
+        if (openPlaylist != null) openPlaylist = null else section = 0
+    }
+
     LaunchedEffect(refresh, section, openPlaylist) {
         stats = library.stats()
         history = library.history(100)
@@ -142,75 +152,70 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(horizontal = 16.dp)) {
-            Text(
-                "Library",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 16.dp, bottom = 2.dp)
-            )
-            TabStrip(SECTIONS, section, { section = it; openPlaylist = null; renaming = null })
+        if (section == 0) {
+            Box(Modifier.padding(horizontal = 16.dp)) { ScreenTitle("Library") }
+        } else {
+            Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(52.dp).clickable { section = 0; openPlaylist = null; renaming = null },
+                    contentAlignment = Alignment.Center
+                ) { Icon(AyIcons.Back, contentDescription = "Back", tint = Ay.Paper, modifier = Modifier.size(24.dp)) }
+
+                Text(SECTIONS[section], fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            }
         }
 
         LazyColumn(Modifier.fillMaxSize()) {
             when (section) {
                 0 -> {
-                    item {
-                        val blocks = listOf(
-                            Triple("Watch later", stats?.watchLater ?: 0, 2),
-                            Triple("Liked videos", stats?.likes ?: 0, 3),
-                            Triple("Playlists", stats?.playlists ?: 0, 1),
-                            Triple("History", stats?.history ?: 0, 4),
-                            Triple("Following", stats?.following ?: 0, 5)
-                        )
+                    val entries = listOf(
+                        Entry("Watch later", AyIcons.Clock, 2, stats?.watchLater ?: 0),
+                        Entry("Playlists", AyIcons.Playlist, 1, stats?.playlists ?: 0),
+                        Entry("Liked videos", AyIcons.Heart, 3, stats?.likes ?: 0),
+                        Entry("History", AyIcons.History, 4, stats?.history ?: 0),
+                        Entry("Following", AyIcons.People, 5, stats?.following ?: 0)
+                    )
 
-                        Column(
-                            Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            blocks.chunked(2).forEachIndexed { rowIndex, pair ->
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    pair.forEachIndexed { column, (title, count, target) ->
-                                        val kind = rowIndex * 2 + column
-
-                                        Box(
-                                            Modifier.weight(1f).height(112.dp)
-                                                .background(Ay.Obsidian, RoundedCornerShape(16.dp))
-                                                .border(1.dp, Color(0xFF242428), RoundedCornerShape(16.dp))
-                                                .clickable { section = target }
-                                                .padding(16.dp)
-                                        ) {
-                                            Box(Modifier.align(Alignment.TopEnd)) { BlockShape(kind) }
-                                            Column(Modifier.align(Alignment.BottomStart)) {
-                                                Text(title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = Ay.Bone)
-                                                Text(
-                                                    "$count ${if (count == 1) "item" else "items"}",
-                                                    fontSize = 12.sp,
-                                                    color = Color(0xFF8E8C86)
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    items(entries, key = { "e-" + it.label }) { entry ->
+                        Column(Modifier.fillMaxWidth().clickable { section = entry.target }) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(entry.icon, contentDescription = null, tint = Ay.Paper, modifier = Modifier.size(24.dp))
+                                Column(Modifier.weight(1f).padding(horizontal = 18.dp)) {
+                                    Text(entry.label, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "${entry.count} ${if (entry.count == 1) "item" else "items"}",
+                                        fontSize = 12.sp,
+                                        color = Ay.Dim
+                                    )
                                 }
+                                Icon(AyIcons.Chevron, contentDescription = null, tint = Ay.Dim, modifier = Modifier.size(20.dp))
                             }
+                            HorizontalDivider(color = Ay.Steel, modifier = Modifier.padding(start = 58.dp))
                         }
                     }
 
-                    if (history.isNotEmpty()) {
-                        item { Box(Modifier.padding(horizontal = 16.dp)) { SectionHead("History", "See all") { section = 4 } } }
-                        items(history.take(3), key = { "h-" + it.videoId }) { row ->
-                            val entry = video(row.videoId, row.title, row.channelTitle, row.thumbnailUrl, row.channelId)
-
-                            VideoCard(
-                                entry,
-                                progress = row.durationSeconds?.takeIf { it > 0 }
-                                    ?.let { row.progressSeconds.toFloat() / it },
-                                modifier = Modifier.padding(top = 10.dp),
-                                onMore = { menuFor = entry to "history" }
-                            ) { onOpen(entry) }
+                    item {
+                        Box(Modifier.padding(horizontal = 16.dp)) {
+                            SectionHead("Recently played", if (history.size > 10) "See all" else null) { section = 4 }
                         }
+                    }
+
+                    if (history.isEmpty()) {
+                        item { Text("Videos you watch show up here.", color = Ay.Fog, modifier = Modifier.padding(16.dp)) }
+                    }
+
+                    items(history.take(10), key = { "r-" + it.videoId }) { row ->
+                        val entry = video(row.videoId, row.title, row.channelTitle, row.thumbnailUrl, row.channelId)
+
+                        VideoCard(
+                            entry,
+                            progress = row.durationSeconds?.takeIf { it > 0 }?.let { row.progressSeconds.toFloat() / it },
+                            modifier = Modifier.padding(top = 10.dp),
+                            onMore = { menuFor = entry to "history" }
+                        ) { onOpen(entry) }
                     }
                 }
 
