@@ -185,6 +185,7 @@ fun ChannelScreen(
                         AyButton(
                             text = if (following) "Following" else "Follow",
                             primary = !following,
+                            pill = true,
                             onClick = {
                                 scope.launch {
                                     if (following) {

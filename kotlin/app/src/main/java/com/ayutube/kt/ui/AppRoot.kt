@@ -85,7 +85,8 @@ fun AppRoot() {
                     Tab.Home -> HomeScreen(
                         onOpen = ::watch,
                         onChannel = ::channel,
-                        onMore = { menuVideo = it }
+                        onMore = { menuVideo = it },
+                        onSearch = { tab = Tab.Search }
                     )
                     Tab.Search -> SearchScreen(
                         onOpen = ::watch,

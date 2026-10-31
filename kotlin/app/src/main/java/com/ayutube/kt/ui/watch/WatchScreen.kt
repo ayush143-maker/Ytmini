@@ -1,5 +1,8 @@
 package com.ayutube.kt.ui.watch
 
+import android.widget.Toast
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clip
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -472,7 +475,8 @@ fun WatchScreen(
                         AyButton(
                             text = if (following) "Following" else "Follow",
                             primary = !following,
-                            horizontalPadding = 11.dp,
+                            horizontalPadding = 15.dp,
+                            pill = true,
                             onClick = {
                                 if (video.channelId.isNotEmpty()) {
                                     scope.launch {
@@ -489,30 +493,36 @@ fun WatchScreen(
 
                 item {
                     Row(
-                        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        AyButton(if (liked) "Liked" else "Like", primary = liked, icon = AyIcons.Heart, onClick = {
+                        ActionIcon(AyIcons.Heart, "Like", active = liked) {
                             scope.launch {
                                 if (liked) library.unlike(video.id) else library.like(video)
                                 liked = !liked
+                                Toast.makeText(context, if (liked) "Liked" else "Removed from liked", Toast.LENGTH_SHORT).show()
                             }
-                        })
-                        AyButton(if (saved) "Saved" else "Watch later", primary = saved, icon = AyIcons.Clock, onClick = {
+                        }
+                        ActionIcon(AyIcons.Clock, "Watch later", active = saved) {
                             scope.launch {
                                 if (saved) library.removeWatchLater(video.id) else library.addWatchLater(video)
                                 saved = !saved
+                                Toast.makeText(
+                                    context,
+                                    if (saved) "Added to watch later" else "Removed from watch later",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             }
-                        })
-                        AyButton("Playlist", icon = AyIcons.PlaylistAdd, onClick = { menuOpen = true })
-                        AyButton("Share", icon = AyIcons.Share, onClick = {
+                        }
+                        ActionIcon(AyIcons.PlaylistAdd, "Add to playlist", active = false) { menuOpen = true }
+                        ActionIcon(AyIcons.Share, "Share", active = false) {
                             val send = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
                                 putExtra(Intent.EXTRA_TEXT, "https://youtu.be/${video.id}")
                             }
 
                             context.startActivity(Intent.createChooser(send, "Share"))
-                        })
+                        }
                     }
                 }
 
@@ -633,7 +643,7 @@ fun WatchScreen(
                     )
                 }
 
-                item { HorizontalDivider(color = Color.White.copy(alpha = 0.35f), thickness = 1.dp) }
+                item { HorizontalDivider(color = Color.White, thickness = 2.dp) }
 
                 if (session.related.isEmpty()) {
                     items(3) { VideoCardSkeleton(Modifier.padding(top = 12.dp)) }
@@ -722,5 +732,33 @@ fun WatchScreen(
                 }
             }
         }
+    }
+}
+
+/** A bare icon button that lights up in the app's pink for a moment (or while it is switched on). */
+@Composable
+private fun ActionIcon(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
+    var flash by remember { mutableStateOf(false) }
+
+    LaunchedEffect(flash) {
+        if (flash) {
+            delay(450)
+            flash = false
+        }
+    }
+
+    Box(
+        Modifier.size(52.dp).clip(CircleShape).clickable {
+            flash = true
+            onClick()
+        },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = if (active || flash) Ay.Pink else Ay.Paper,
+            modifier = Modifier.size(26.dp)
+        )
     }
 }

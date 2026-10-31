@@ -1,5 +1,8 @@
 package com.ayutube.kt.ui.components
 
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -119,6 +122,57 @@ fun TopicChips(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
                     fontWeight = FontWeight.Medium,
                     color = if (active) Ay.Ink else Ay.Paper,
                     maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+/** Home's pill-shaped topic chips with a filter button on the right. */
+@Composable
+fun FilterChipRow(
+    labels: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    filterActive: Boolean,
+    onFilter: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        LazyRow(
+            Modifier.weight(1f),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            itemsIndexed(labels) { index, label ->
+                val active = index == selected
+
+                Box(
+                    Modifier.clip(RoundedCornerShape(50))
+                        .background(if (active) Ay.Paper else Ay.SlateHi)
+                        .clickable { onSelect(index) }
+                        .padding(horizontal = 15.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        label,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (active) Ay.Ink else Ay.Paper,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
+        Box(Modifier.width(1.dp).height(28.dp).background(Ay.Steel))
+
+        Box(Modifier.size(52.dp).clickable(onClick = onFilter), contentAlignment = Alignment.Center) {
+            Icon(AyIcons.Sliders, contentDescription = "Filter", tint = Ay.Paper, modifier = Modifier.size(22.dp))
+
+            if (filterActive) {
+                Box(
+                    Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 12.dp).size(8.dp)
+                        .background(Ay.Pink, androidx.compose.foundation.shape.CircleShape)
                 )
             }
         }
@@ -273,9 +327,11 @@ fun AyButton(
     modifier: Modifier = Modifier,
     danger: Boolean = false,
     icon: ImageVector? = null,
-    horizontalPadding: Dp = 16.dp
+    horizontalPadding: Dp = 16.dp,
+    pill: Boolean = false
 ) {
-    val shape = if (primary) Modifier.background(Ay.Pink) else Modifier.border(1.dp, Ay.Steel)
+    val clipShape = if (pill) RoundedCornerShape(50) else RectangleShape
+    val shape = if (primary) Modifier.background(Ay.Pink, clipShape) else Modifier.border(1.dp, Ay.Steel, clipShape)
     val tint = when {
         primary -> Ay.Ink
         danger -> Ay.Pink
@@ -283,7 +339,7 @@ fun AyButton(
     }
 
     Box(
-        modifier.then(shape).clickable(onClick = onClick).padding(horizontal = horizontalPadding, vertical = 10.dp),
+        modifier.then(shape).clip(clipShape).clickable(onClick = onClick).padding(horizontal = horizontalPadding, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

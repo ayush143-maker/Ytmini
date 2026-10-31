@@ -27,7 +27,7 @@ object AyuLogo {
 
     // Whole lockup after the wordmark is shrunk and moved away from the mark.
     const val X0 = 162f
-    const val X1 = 815f
+    const val X1 = 719f
     const val Y0 = 273f
     const val Y1 = 373f
     const val MARK_X0 = 162f
@@ -37,7 +37,7 @@ object AyuLogo {
 
     // The wordmark is drawn at WORD_SCALE of its original size, centred on the mark's height,
     // with a clear gap after the mark. Its paths below are in the original (full-size) space.
-    const val WORD_SCALE = 0.78f
+    const val WORD_SCALE = 0.62f
     const val WORD_SRC_X0 = 323.1f
     const val WORD_CY = 325f
     const val WORD_X0 = MARK_X1 + 70f
