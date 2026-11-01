@@ -1,5 +1,14 @@
 package com.ayutube.kt.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
@@ -62,6 +71,21 @@ fun HomeScreen(
     val listState = rememberLazyListState()
     var durationFilter by rememberSaveable { mutableStateOf(0) }
     var showFilter by remember { mutableStateOf(false) }
+    var chipsVisible by remember { mutableStateOf(true) }
+    val atTop by remember {
+        derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 }
+    }
+
+    // Scrolling down hides the chips, any scroll back up (or reaching the top) brings them back.
+    val chipsScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -6f) chipsVisible = false else if (available.y > 6f) chipsVisible = true
+
+                return Offset.Zero
+            }
+        }
+    }
 
     val shown = remember(state.items, durationFilter) {
         when (durationFilter) {
@@ -93,7 +117,7 @@ fun HomeScreen(
 
     val days = if (settings.studyMode) Study.daysUntil(profile.examDate) else null
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().nestedScroll(chipsScroll)) {
         // Logo on the left, search on the right.
         Row(
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 6.dp, top = 12.dp, bottom = 6.dp),
@@ -123,14 +147,22 @@ fun HomeScreen(
             }
         }
 
-        FilterChipRow(
-            labels = state.chips,
-            selected = state.chip,
-            onSelect = vm::select,
-            filterActive = durationFilter != 0,
-            onFilter = { showFilter = true }
-        )
-        HorizontalDivider(color = Ay.Steel)
+        AnimatedVisibility(
+            visible = chipsVisible || atTop,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column {
+                FilterChipRow(
+                    labels = state.chips,
+                    selected = state.chip,
+                    onSelect = vm::select,
+                    filterActive = durationFilter != 0,
+                    onFilter = { showFilter = true }
+                )
+                HorizontalDivider(color = Ay.Steel)
+            }
+        }
 
         state.error?.let {
             Column(Modifier.padding(16.dp)) {

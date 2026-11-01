@@ -1,5 +1,11 @@
 package com.ayutube.kt.ui.watch
 
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import android.widget.Toast
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
@@ -407,22 +413,18 @@ fun WatchScreen(
                         }
                     }
 
-                    Slider(
-                        value = scrubbing ?: if (duration > 0) position.toFloat() / duration else 0f,
-                        onValueChange = {
+                    ThinSeekBar(
+                        fraction = scrubbing ?: if (duration > 0) position.toFloat() / duration else 0f,
+                        scrubbing = scrubbing != null,
+                        onScrub = {
                             scrubbing = it
                             touchControls()
                         },
-                        onValueChangeFinished = {
-                            scrubbing?.let { fraction -> session.seekTo((fraction * duration).toLong()) }
+                        onDone = { fraction ->
+                            session.seekTo((fraction * duration).toLong())
                             scrubbing = null
                         },
-                        colors = SliderDefaults.colors(
-                            thumbColor = Ay.Pink,
-                            activeTrackColor = Ay.Pink,
-                            inactiveTrackColor = Color(0x55FFFFFF)
-                        ),
-                        modifier = Modifier.padding(horizontal = 4.dp).fillMaxWidth().height(28.dp)
+                        modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth()
                     )
                 }
             }
@@ -460,18 +462,56 @@ fun WatchScreen(
                 }
 
                 item {
-                    Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.clickable { onChannel(video) }) {
                             ChannelAvatar(video.channel, video.avatar, video.channelId, size = 38)
                         }
-                        Text(
-                            video.channel,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f).clickable { onChannel(video) }.padding(horizontal = 12.dp)
-                        )
+
+                        Column(Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)) {
+                            Text(
+                                video.channel,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.clickable { onChannel(video) }
+                            )
+
+                            // The four actions sit just under the name, evenly spread before the Follow button.
+                            Row(
+                                Modifier.fillMaxWidth().padding(top = 2.dp).offset(x = (-8).dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                ActionIcon(AyIcons.Heart, "Like", active = liked) {
+                                    scope.launch {
+                                        if (liked) library.unlike(video.id) else library.like(video)
+                                        liked = !liked
+                                        Toast.makeText(context, if (liked) "Liked" else "Removed from liked", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                ActionIcon(AyIcons.Clock, "Watch later", active = saved) {
+                                    scope.launch {
+                                        if (saved) library.removeWatchLater(video.id) else library.addWatchLater(video)
+                                        saved = !saved
+                                        Toast.makeText(
+                                            context,
+                                            if (saved) "Added to watch later" else "Removed from watch later",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                                ActionIcon(AyIcons.PlaylistAdd, "Add to playlist", active = false) { menuOpen = true }
+                                ActionIcon(AyIcons.Share, "Share", active = false) {
+                                    val send = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, "https://youtu.be/${video.id}")
+                                    }
+
+                                    context.startActivity(Intent.createChooser(send, "Share"))
+                                }
+                            }
+                        }
+
                         AyButton(
                             text = if (following) "Following" else "Follow",
                             primary = !following,
@@ -488,41 +528,6 @@ fun WatchScreen(
                                 }
                             }
                         )
-                    }
-                }
-
-                item {
-                    Row(
-                        Modifier.fillMaxWidth().padding(start = 7.dp, top = 2.dp, bottom = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        ActionIcon(AyIcons.Heart, "Like", active = liked) {
-                            scope.launch {
-                                if (liked) library.unlike(video.id) else library.like(video)
-                                liked = !liked
-                                Toast.makeText(context, if (liked) "Liked" else "Removed from liked", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                        ActionIcon(AyIcons.Clock, "Watch later", active = saved) {
-                            scope.launch {
-                                if (saved) library.removeWatchLater(video.id) else library.addWatchLater(video)
-                                saved = !saved
-                                Toast.makeText(
-                                    context,
-                                    if (saved) "Added to watch later" else "Removed from watch later",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        }
-                        ActionIcon(AyIcons.PlaylistAdd, "Add to playlist", active = false) { menuOpen = true }
-                        ActionIcon(AyIcons.Share, "Share", active = false) {
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, "https://youtu.be/${video.id}")
-                            }
-
-                            context.startActivity(Intent.createChooser(send, "Share"))
-                        }
                     }
                 }
 
@@ -639,7 +644,7 @@ fun WatchScreen(
                         "Up next",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 10.dp)
+                        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 10.dp)
                     )
                 }
 
@@ -748,7 +753,7 @@ private fun ActionIcon(icon: ImageVector, label: String, active: Boolean, onClic
     }
 
     Box(
-        Modifier.size(40.dp).clip(CircleShape).clickable {
+        Modifier.size(38.dp).clip(CircleShape).clickable {
             flash = true
             onClick()
         },
@@ -759,6 +764,59 @@ private fun ActionIcon(icon: ImageVector, label: String, active: Boolean, onClic
             contentDescription = label,
             tint = if (active || flash) Ay.Pink else Ay.Paper,
             modifier = Modifier.size(22.dp)
+        )
+    }
+}
+
+/** A thin seek bar like YouTube's: a 3dp line, a small dot, and a taller area to grab. */
+@Composable
+private fun ThinSeekBar(
+    fraction: Float,
+    scrubbing: Boolean,
+    onScrub: (Float) -> Unit,
+    onDone: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var width by remember { mutableIntStateOf(1) }
+    var last by remember { mutableFloatStateOf(0f) }
+    val scrub by rememberUpdatedState(onScrub)
+    val done by rememberUpdatedState(onDone)
+    val dot = if (scrubbing) 14.dp else 10.dp
+    val dotPx = with(LocalDensity.current) { dot.roundToPx() }
+    val shown = fraction.coerceIn(0f, 1f)
+
+    Box(
+        modifier.height(28.dp)
+            .onSizeChanged { width = it.width.coerceAtLeast(1) }
+            .pointerInput(Unit) {
+                detectTapGestures { at ->
+                    val f = (at.x / width).coerceIn(0f, 1f)
+
+                    scrub(f)
+                    done(f)
+                }
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { at ->
+                        last = (at.x / width).coerceIn(0f, 1f)
+                        scrub(last)
+                    },
+                    onDragEnd = { done(last) },
+                    onDragCancel = { done(last) }
+                ) { change, _ ->
+                    change.consume()
+                    last = (change.position.x / width).coerceIn(0f, 1f)
+                    scrub(last)
+                }
+            },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Box(Modifier.fillMaxWidth().height(3.dp).background(Color(0x55FFFFFF)))
+        Box(Modifier.fillMaxWidth(shown).height(3.dp).background(Ay.Pink))
+        Box(
+            Modifier.offset { IntOffset((shown * width).roundToInt() - dotPx / 2, 0) }
+                .size(dot).background(Ay.Pink, CircleShape)
         )
     }
 }

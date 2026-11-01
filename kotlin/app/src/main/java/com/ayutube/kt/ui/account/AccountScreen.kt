@@ -94,20 +94,14 @@ fun AccountScreen() {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Box(Modifier.padding(horizontal = 16.dp)) { ScreenTitle("Account") }
 
-        Text(
-            "Stored only on this phone. There is no account and nothing is synced.",
-            color = Ay.Fog,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(horizontal = 16.dp)
-        )
+        SlitRow(AyIcons.Account, "Stored only on this phone", "There is no account and nothing is synced.")
 
         stats?.let {
-            Text(
+            SlitRow(
+                AyIcons.Library,
+                "Your library",
                 "${it.history} watched \u00B7 ${it.playlists} playlists \u00B7 ${it.watchLater} watch later \u00B7 " +
-                    "${it.likes} liked \u00B7 ${it.following} following",
-                color = Ay.Dim,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)
+                    "${it.likes} liked \u00B7 ${it.following} following"
             )
         }
 
