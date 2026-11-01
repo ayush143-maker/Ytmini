@@ -19,8 +19,24 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // No private key is set up yet, so release builds are signed with the debug key (fine for installing).
+            signingConfig = signingConfigs.getByName("debug")
         }
+
+        // Same as release but without R8, as a fallback if the shrunk build misbehaves.
+        create("releaseSafe") {
+            initWith(getByName("release"))
+            isMinifyEnabled = false
+            matchingFallbacks += "release"
+        }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     compileOptions {

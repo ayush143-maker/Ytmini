@@ -1,5 +1,13 @@
 package com.ayutube.kt.ui.watch
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.withTransform
+import com.ayutube.kt.ui.components.AyuLogo
+import com.ayutube.kt.ui.components.drawMascot
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.runtime.rememberUpdatedState
@@ -395,27 +403,40 @@ fun WatchScreen(
                     Modifier.fillMaxWidth().align(Alignment.BottomCenter)
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xAA000000))))
                 ) {
-                    Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.padding(horizontal = 12.dp).height(32.dp),
+                        verticalAlignment = Alignment.Bottom
+                    ) {
                         val shown = ((scrubbing?.times(duration) ?: position.toFloat()) / 1000).toLong()
 
-                        Text("${formatClock(shown)} / ${formatClock(duration / 1000)}", fontSize = 12.sp, color = Color.White)
+                        Text(
+                            "${formatClock(shown)} / ${formatClock(duration / 1000)}",
+                            fontSize = 12.sp,
+                            color = Color.White,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
                         Box(Modifier.weight(1f))
                         Box(
-                            Modifier.size(40.dp).clickable { setFullscreen(!fullscreen); touchControls() },
+                            Modifier.size(32.dp).clickable { setFullscreen(!fullscreen); touchControls() },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 if (fullscreen) AyIcons.Minimize else AyIcons.Maximize,
                                 "Fullscreen",
                                 tint = Color.White,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
+                    }
+
+                    val marks = remember(session.chapters, duration) {
+                        if (duration > 0) session.chapters.map { it.startSeconds * 1000f / duration } else emptyList()
                     }
 
                     ThinSeekBar(
                         fraction = scrubbing ?: if (duration > 0) position.toFloat() / duration else 0f,
                         scrubbing = scrubbing != null,
+                        marks = marks,
                         onScrub = {
                             scrubbing = it
                             touchControls()
@@ -462,24 +483,27 @@ fun WatchScreen(
                 }
 
                 item {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.clickable { onChannel(video) }) {
-                            ChannelAvatar(video.channel, video.avatar, video.channelId, size = 38)
-                        }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.Top) {
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.clickable { onChannel(video) }) {
+                                    ChannelAvatar(video.channel, video.avatar, video.channelId, size = 38)
+                                }
 
-                        Column(Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)) {
-                            Text(
-                                video.channel,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.clickable { onChannel(video) }
-                            )
+                                Text(
+                                    video.channel,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)
+                                        .clickable { onChannel(video) }
+                                )
+                            }
 
-                            // The four actions sit just under the name, evenly spread before the Follow button.
+                            // Starts under the name (avatar 38 + gap 12, minus the icon's own padding) and ends before Follow.
                             Row(
-                                Modifier.fillMaxWidth().padding(top = 2.dp).offset(x = (-8).dp),
+                                Modifier.fillMaxWidth().padding(start = 42.dp, end = 6.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 ActionIcon(AyIcons.Heart, "Like", active = liked) {
@@ -539,9 +563,9 @@ fun WatchScreen(
                         Column(Modifier.padding(top = 4.dp)) {
                             Text(
                                 "Chapters",
-                                fontSize = 14.sp,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 10.dp)
                             )
                             Row(
                                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
@@ -564,6 +588,8 @@ fun WatchScreen(
                                     }
                                 }
                             }
+
+                            Spacer(Modifier.height(12.dp))
                         }
                     }
                 }
@@ -768,11 +794,12 @@ private fun ActionIcon(icon: ImageVector, label: String, active: Boolean, onClic
     }
 }
 
-/** A thin seek bar like YouTube's: a 3dp line, a small dot, and a taller area to grab. */
+/** Thin seek bar: a 3dp line split at chapter starts, pink progress, and the mascot as the thumb. */
 @Composable
 private fun ThinSeekBar(
     fraction: Float,
     scrubbing: Boolean,
+    marks: List<Float>,
     onScrub: (Float) -> Unit,
     onDone: (Float) -> Unit,
     modifier: Modifier = Modifier
@@ -781,12 +808,11 @@ private fun ThinSeekBar(
     var last by remember { mutableFloatStateOf(0f) }
     val scrub by rememberUpdatedState(onScrub)
     val done by rememberUpdatedState(onDone)
-    val dot = if (scrubbing) 14.dp else 10.dp
-    val dotPx = with(LocalDensity.current) { dot.roundToPx() }
+    val thumb by animateDpAsState(if (scrubbing) 30.dp else 22.dp, label = "thumb")
     val shown = fraction.coerceIn(0f, 1f)
 
     Box(
-        modifier.height(28.dp)
+        modifier.height(26.dp)
             .onSizeChanged { width = it.width.coerceAtLeast(1) }
             .pointerInput(Unit) {
                 detectTapGestures { at ->
@@ -809,14 +835,35 @@ private fun ThinSeekBar(
                     last = (change.position.x / width).coerceIn(0f, 1f)
                     scrub(last)
                 }
-            },
-        contentAlignment = Alignment.CenterStart
+            }
     ) {
-        Box(Modifier.fillMaxWidth().height(3.dp).background(Color(0x55FFFFFF)))
-        Box(Modifier.fillMaxWidth(shown).height(3.dp).background(Ay.Pink))
-        Box(
-            Modifier.offset { IntOffset((shown * width).roundToInt() - dotPx / 2, 0) }
-                .size(dot).background(Ay.Pink, CircleShape)
-        )
+        Canvas(Modifier.fillMaxSize()) {
+            val cy = size.height / 2f
+            val lineH = 3.dp.toPx()
+            val gap = 2.dp.toPx()
+            val cuts = listOf(0f) + marks.filter { it > 0.01f && it < 0.99f }.sorted() + listOf(1f)
+            val played = shown * size.width
+
+            for (i in 0 until cuts.size - 1) {
+                val x0 = cuts[i] * size.width + if (i > 0) gap / 2f else 0f
+                val x1 = cuts[i + 1] * size.width - if (i < cuts.size - 2) gap / 2f else 0f
+
+                if (x1 <= x0) continue
+
+                drawRect(Color(0x55FFFFFF), Offset(x0, cy - lineH / 2f), Size(x1 - x0, lineH))
+
+                if (played > x0) {
+                    drawRect(Ay.Pink, Offset(x0, cy - lineH / 2f), Size(minOf(played, x1) - x0, lineH))
+                }
+            }
+
+            val k = thumb.toPx() / (AyuLogo.MARK_X1 - AyuLogo.MARK_X0)
+
+            withTransform({
+                translate(played, cy)
+                scale(k, k, Offset.Zero)
+                translate(-AyuLogo.MARK_CX, -AyuLogo.MARK_CY)
+            }) { drawMascot() }
+        }
     }
 }

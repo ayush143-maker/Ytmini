@@ -10,9 +10,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-debug-apk:
+  build-release-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -29,13 +29,21 @@ jobs:
         with:
           gradle-version: 8.10.2
 
-      - name: Build debug APK
-        run: gradle -p kotlin assembleDebug --stacktrace
+      - name: Build release APKs
+        run: gradle -p kotlin assembleRelease assembleReleaseSafe --stacktrace
 
-      - name: Upload APK
+      - name: Upload release APK (shrunk with R8)
         uses: actions/upload-artifact@v4
         with:
-          name: ayutube-kotlin-debug-apk
-          path: kotlin/app/build/outputs/apk/debug/*.apk
+          name: ayutube-release-apk
+          path: kotlin/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
+
+      - name: Upload release APK (no R8, fallback)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ayutube-release-safe-apk
+          path: kotlin/app/build/outputs/apk/releaseSafe/*.apk
+          if-no-files-found: error
+          retention-days: 30

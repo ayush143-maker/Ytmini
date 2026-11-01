@@ -1,5 +1,12 @@
 package com.ayutube.kt.ui.home
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -71,16 +78,22 @@ fun HomeScreen(
     val listState = rememberLazyListState()
     var durationFilter by rememberSaveable { mutableStateOf(0) }
     var showFilter by remember { mutableStateOf(false) }
-    var chipsVisible by remember { mutableStateOf(true) }
-    val atTop by remember {
-        derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 }
-    }
+    val density = LocalDensity.current
+    var chipsHeightPx by remember { mutableIntStateOf(with(density) { 53.dp.roundToPx() }) }
+    var chipsOffset by remember { mutableFloatStateOf(0f) }
 
-    // Scrolling down hides the chips, any scroll back up (or reaching the top) brings them back.
+    // The chips row moves with the finger: it slides up while scrolling down and slides back on any scroll up.
+    // It floats above the list, so the list itself is never resized while scrolling.
     val chipsScroll = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (available.y < -6f) chipsVisible = false else if (available.y > 6f) chipsVisible = true
+                chipsOffset = (chipsOffset + available.y).coerceIn(-chipsHeightPx.toFloat(), 0f)
+
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) chipsOffset = 0f
 
                 return Offset.Zero
             }
@@ -117,7 +130,7 @@ fun HomeScreen(
 
     val days = if (settings.studyMode) Study.daysUntil(profile.examDate) else null
 
-    Column(Modifier.fillMaxSize().nestedScroll(chipsScroll)) {
+    Column(Modifier.fillMaxSize()) {
         // Logo on the left, search on the right.
         Row(
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 6.dp, top = 12.dp, bottom = 6.dp),
@@ -147,12 +160,61 @@ fun HomeScreen(
             }
         }
 
-        AnimatedVisibility(
-            visible = chipsVisible || atTop,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut()
-        ) {
-            Column {
+        Box(Modifier.weight(1f).fillMaxWidth().nestedScroll(chipsScroll)) {
+            val topPad = with(density) { chipsHeightPx.toDp() }
+
+            if (state.loading && state.items.isEmpty()) {
+                VideoListSkeleton(Modifier.padding(top = topPad))
+            } else {
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(top = topPad),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    state.error?.let { message ->
+                        item {
+                            Column(Modifier.padding(16.dp)) {
+                                Text(message, color = Ay.Pink, fontSize = 13.sp, modifier = Modifier.padding(bottom = 10.dp))
+                                AyButton("Try again", primary = true, onClick = vm::refresh)
+                            }
+                        }
+                    }
+
+                    state.note?.let { note ->
+                        item { Text(note, color = Ay.Fog, fontSize = 14.sp, modifier = Modifier.padding(24.dp)) }
+                    }
+
+                    if (durationFilter != 0 && shown.isEmpty() && state.items.isNotEmpty()) {
+                        item {
+                            Column(Modifier.padding(24.dp)) {
+                                Text(
+                                    "No videos of this length here yet.",
+                                    color = Ay.Fog,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.padding(bottom = 10.dp)
+                                )
+                                AyButton("Clear filter", onClick = { durationFilter = 0 })
+                            }
+                        }
+                    }
+
+                    items(shown, key = { it.id }) { video ->
+                        VideoCard(
+                            video = video,
+                            modifier = Modifier.padding(top = 8.dp),
+                            onMore = { onMore(video) },
+                            onChannel = { onChannel(video) }
+                        ) { onOpen(video) }
+                    }
+                }
+            }
+
+            Column(
+                Modifier.align(Alignment.TopStart).fillMaxWidth()
+                    .graphicsLayer { translationY = chipsOffset }
+                    .background(Ay.Ink)
+                    .onSizeChanged { chipsHeightPx = it.height }
+            ) {
                 FilterChipRow(
                     labels = state.chips,
                     selected = state.chip,
@@ -162,17 +224,6 @@ fun HomeScreen(
                 )
                 HorizontalDivider(color = Ay.Steel)
             }
-        }
-
-        state.error?.let {
-            Column(Modifier.padding(16.dp)) {
-                Text(it, color = Ay.Pink, fontSize = 13.sp, modifier = Modifier.padding(bottom = 10.dp))
-                AyButton("Try again", primary = true, onClick = vm::refresh)
-            }
-        }
-
-        state.note?.let {
-            Text(it, color = Ay.Fog, fontSize = 14.sp, modifier = Modifier.padding(24.dp))
         }
 
         if (showFilter) {
@@ -203,28 +254,6 @@ fun HomeScreen(
                             }
                         }
                     }
-                }
-            }
-        }
-
-        if (durationFilter != 0 && shown.isEmpty() && state.items.isNotEmpty()) {
-            Column(Modifier.padding(24.dp)) {
-                Text("No videos of this length here yet.", color = Ay.Fog, fontSize = 14.sp, modifier = Modifier.padding(bottom = 10.dp))
-                AyButton("Clear filter", onClick = { durationFilter = 0 })
-            }
-        }
-
-        if (state.loading && state.items.isEmpty()) {
-            VideoListSkeleton(Modifier.weight(1f))
-        } else {
-            LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
-                items(shown, key = { it.id }) { video ->
-                    VideoCard(
-                        video = video,
-                        modifier = Modifier.padding(top = 8.dp),
-                        onMore = { onMore(video) },
-                        onChannel = { onChannel(video) }
-                    ) { onOpen(video) }
                 }
             }
         }
