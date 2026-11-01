@@ -1,5 +1,7 @@
 package com.ayutube.kt.ui.home
 
+import kotlinx.coroutines.delay
+import com.ayutube.kt.ui.components.VideoCardSkeleton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.graphics.graphicsLayer
@@ -69,6 +71,7 @@ fun HomeScreen(
     onChannel: (VideoItem) -> Unit,
     onMore: (VideoItem) -> Unit,
     onSearch: () -> Unit,
+    refreshKey: Int = 0,
     vm: HomeViewModel = viewModel()
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -117,6 +120,19 @@ fun HomeScreen(
 
     LaunchedEffect(study) { vm.configure(study) }
 
+    // Reload "Continue Watching" now, and again whenever a page opened over Home is closed.
+    var firstLoad by remember { mutableStateOf(true) }
+
+    LaunchedEffect(refreshKey) {
+        if (!firstLoad) {
+            container.playback.saveProgress()
+            delay(600)
+        }
+
+        firstLoad = false
+        vm.reloadContinue()
+    }
+
     val nearEnd by remember {
         derivedStateOf {
             val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
@@ -163,49 +179,65 @@ fun HomeScreen(
         Box(Modifier.weight(1f).fillMaxWidth().nestedScroll(chipsScroll)) {
             val topPad = with(density) { chipsHeightPx.toDp() }
 
-            if (state.loading && state.items.isEmpty()) {
-                VideoListSkeleton(Modifier.padding(top = topPad))
-            } else {
-                LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(top = topPad),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    state.error?.let { message ->
-                        item {
-                            Column(Modifier.padding(16.dp)) {
-                                Text(message, color = Ay.Pink, fontSize = 13.sp, modifier = Modifier.padding(bottom = 10.dp))
-                                AyButton("Try again", primary = true, onClick = vm::refresh)
-                            }
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(top = topPad),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                state.error?.let { message ->
+                    item {
+                        Column(Modifier.padding(16.dp)) {
+                            Text(message, color = Ay.Pink, fontSize = 13.sp, modifier = Modifier.padding(bottom = 10.dp))
+                            AyButton("Try again", primary = true, onClick = vm::refresh)
+                        }
+                    }
+                }
+
+                state.note?.let { note ->
+                    item { Text(note, color = Ay.Fog, fontSize = 14.sp, modifier = Modifier.padding(24.dp)) }
+                }
+
+                if (state.sections) {
+                    if (state.continueWatching.isNotEmpty()) {
+                        item(key = "sec-continue-title") { HomeTitle("Continue Watching") }
+                        item(key = "sec-continue") { ContinueRow(state.continueWatching, onOpen) }
+                    }
+
+                    if (state.trending.isNotEmpty() || state.trendingLoading) {
+                        item(key = "sec-trending-title") { HomeTitle("Trending Now") }
+                        item(key = "sec-trending") {
+                            TrendingGrid(state.trending, state.trendingLoading, onOpen, onEnd = vm::loadMoreTrending)
                         }
                     }
 
-                    state.note?.let { note ->
-                        item { Text(note, color = Ay.Fog, fontSize = 14.sp, modifier = Modifier.padding(24.dp)) }
-                    }
+                    item(key = "sec-feed-title") { HomeTitle("Feed") }
+                }
 
-                    if (durationFilter != 0 && shown.isEmpty() && state.items.isNotEmpty()) {
-                        item {
-                            Column(Modifier.padding(24.dp)) {
-                                Text(
-                                    "No videos of this length here yet.",
-                                    color = Ay.Fog,
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.padding(bottom = 10.dp)
-                                )
-                                AyButton("Clear filter", onClick = { durationFilter = 0 })
-                            }
+                if (durationFilter != 0 && shown.isEmpty() && state.items.isNotEmpty()) {
+                    item {
+                        Column(Modifier.padding(24.dp)) {
+                            Text(
+                                "No videos of this length here yet.",
+                                color = Ay.Fog,
+                                fontSize = 14.sp,
+                                modifier = Modifier.padding(bottom = 10.dp)
+                            )
+                            AyButton("Clear filter", onClick = { durationFilter = 0 })
                         }
                     }
+                }
 
-                    items(shown, key = { it.id }) { video ->
-                        VideoCard(
-                            video = video,
-                            modifier = Modifier.padding(top = 8.dp),
-                            onMore = { onMore(video) },
-                            onChannel = { onChannel(video) }
-                        ) { onOpen(video) }
-                    }
+                if (state.loading && state.items.isEmpty()) {
+                    items(3) { VideoCardSkeleton(Modifier.padding(top = 8.dp)) }
+                }
+
+                items(shown, key = { it.id }) { video ->
+                    VideoCard(
+                        video = video,
+                        modifier = Modifier.padding(top = 8.dp),
+                        onMore = { onMore(video) },
+                        onChannel = { onChannel(video) }
+                    ) { onOpen(video) }
                 }
             }
 

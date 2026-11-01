@@ -1,5 +1,6 @@
 package com.ayutube.kt.player
 
+import java.util.Locale
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -32,6 +33,9 @@ import org.schabi.newpipe.extractor.stream.StreamInfo
 import java.security.MessageDigest
 
 data class Chapter(val title: String, val startSeconds: Int)
+
+/** One choice in the audio language menu. [code] is null for the original track. */
+data class AudioLanguage(val code: String?, val label: String, val selected: Boolean)
 
 private data class Skip(val startMs: Long, val endMs: Long)
 
@@ -300,6 +304,51 @@ class PlaybackSession(
         ayu.play(nextQuality, nextAudio, at, video?.let { meta(it) }, captions)
         ayu.setCaption(caption)
         ayu.setSpeed(speed)
+    }
+
+    /** The audio languages this video offers: the original first, then Hindi and English, then a few others. */
+    fun audioLanguages(): List<AudioLanguage> {
+        val tracks = audios
+
+        if (tracks.isEmpty()) return emptyList()
+
+        val codes = tracks.mapNotNull { stream -> stream.audioLocale?.language?.takeIf { it.isNotEmpty() } }.distinct()
+        val current = audio
+        val currentOriginal = current == null || ayu.isOriginalTrack(current)
+        val currentCode = current?.audioLocale?.language
+        val originalCode = tracks.firstOrNull { ayu.isOriginalTrack(it) }?.audioLocale?.language?.takeIf { it.isNotEmpty() }
+
+        fun name(code: String) = Locale(code).getDisplayLanguage(Locale.ENGLISH).replaceFirstChar { it.uppercase() }
+
+        val out = mutableListOf(
+            AudioLanguage(null, if (originalCode != null) "Original (${name(originalCode)})" else "Original", currentOriginal)
+        )
+
+        val others = (listOf("hi", "en").filter { it in codes } + codes.filter { it != "hi" && it != "en" }.take(3))
+            .filter { it != originalCode }
+
+        others.forEach { code -> out += AudioLanguage(code, name(code), !currentOriginal && currentCode == code) }
+
+        return out
+    }
+
+    /** Switches the audio to [code] (null = the original track) and carries on from the same spot. */
+    fun selectAudioLanguage(code: String?) {
+        val pool = if (code == null) {
+            audios.filter { ayu.isOriginalTrack(it) }.ifEmpty { audios }
+        } else {
+            audios.filter { it.audioLocale?.language == code }
+        }
+
+        val pick = ayu.defaultAudio(pool) ?: return
+        var current = quality ?: return
+
+        // A picture with its own audio cannot take a different track: use the best separate-video quality.
+        if (current.muxed) {
+            current = options.filter { !it.muxed && it.video.height <= 720 }.maxByOrNull { it.video.height } ?: return
+        }
+
+        apply(current, pick)
     }
 
     /** Pass a caption's language to show it, or null to hide captions. */

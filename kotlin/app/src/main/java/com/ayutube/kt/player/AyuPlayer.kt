@@ -1,5 +1,6 @@
 package com.ayutube.kt.player
 
+import org.schabi.newpipe.extractor.stream.AudioTrackType
 import android.content.Context
 import android.net.Uri
 import androidx.annotation.OptIn
@@ -103,8 +104,16 @@ class AyuPlayer(context: Context) {
             ?: options.firstOrNull { it.muxed }
             ?: options.firstOrNull()
 
-    fun defaultAudio(audios: List<AudioStream>): AudioStream? =
-        audios.filter { isMp4(it) }.ifEmpty { audios }.maxByOrNull { it.averageBitrate }
+    /** True for the video's own audio, false for a dubbed or described track. */
+    fun isOriginalTrack(stream: AudioStream): Boolean =
+        stream.audioTrackType == null || stream.audioTrackType == AudioTrackType.ORIGINAL
+
+    /** Best audio, from the original track when the video has several languages. */
+    fun defaultAudio(audios: List<AudioStream>): AudioStream? {
+        val pool = audios.filter { isOriginalTrack(it) }.ifEmpty { audios }
+
+        return pool.filter { isMp4(it) }.ifEmpty { pool }.maxByOrNull { it.averageBitrate }
+    }
 
     /** Plays [option] (with [audio] unless it is muxed) from [positionMs]. */
     fun play(

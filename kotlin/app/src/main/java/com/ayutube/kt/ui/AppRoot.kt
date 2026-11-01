@@ -86,7 +86,8 @@ fun AppRoot() {
                         onOpen = ::watch,
                         onChannel = ::channel,
                         onMore = { menuVideo = it },
-                        onSearch = { tab = Tab.Search }
+                        onSearch = { tab = Tab.Search },
+                        refreshKey = stack.size
                     )
                     Tab.Search -> SearchScreen(
                         onOpen = ::watch,

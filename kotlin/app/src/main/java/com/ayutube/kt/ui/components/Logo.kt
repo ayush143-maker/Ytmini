@@ -61,6 +61,9 @@ object AyuLogo {
     /** The mascot: one outline with two eye holes (even-odd fill), so the eyes show what is behind it. */
     val mark: Path by lazy { PathParser().parsePathString(MASCOT).toPath().apply { fillType = PathFillType.EvenOdd } }
 
+    /** Just the two eye holes, so they can be filled dark when something bright runs behind the mascot. */
+    val eyes: Path by lazy { PathParser().parsePathString(MASCOT.substring(MASCOT.indexOf("ZM") + 1)).toPath() }
+
     /** One path per letter: a y u t u b e. */
     val letters: List<Path> by lazy {
         LETTER_DATA.map { PathParser().parsePathString(it).toPath().apply { fillType = PathFillType.EvenOdd } }
@@ -104,7 +107,9 @@ internal fun DrawScope.drawLogoLetter(index: Int, alpha: Float) {
 }
 
 /** The mascot in white with a faint pink at the bottom, on whatever is behind it (never a pink tile). */
-internal fun DrawScope.drawMascot(alpha: Float = 1f) {
+internal fun DrawScope.drawMascot(alpha: Float = 1f, eyeColor: Color? = null) {
+    if (eyeColor != null) drawPath(AyuLogo.eyes, eyeColor)
+
     drawPath(
         AyuLogo.mark,
         Brush.verticalGradient(

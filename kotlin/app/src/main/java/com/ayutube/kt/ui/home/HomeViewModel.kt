@@ -23,8 +23,15 @@ data class HomeState(
     val loading: Boolean = true,
     val items: List<VideoItem> = emptyList(),
     val note: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val sections: Boolean = true,
+    val continueWatching: List<ContinueItem> = emptyList(),
+    val trending: List<VideoItem> = emptyList(),
+    val trendingLoading: Boolean = true
 )
+
+/** A video that was started but not finished, with how far the person got (0 to 1). */
+data class ContinueItem(val video: VideoItem, val progress: Float)
 
 class HomeViewModel : ViewModel() {
     private val normalChips = listOf("All", "Following") + HomeTopics.topics.map { it.label }
@@ -36,9 +43,12 @@ class HomeViewModel : ViewModel() {
     private var builder: FeedBuilder? = null
     private var loadingMore = false
     private var generation = 0
+    private var trendingBuilder: FeedBuilder? = null
+    private var loadingMoreTrending = false
 
     init {
         select(0)
+        loadTrending()
     }
 
     private fun shortTitle(title: String): String =
@@ -57,9 +67,9 @@ class HomeViewModel : ViewModel() {
         val related = history.map { shortTitle(it.title) }.filter { it.length > 3 }.distinct().take(2)
         val favourite = history.groupingBy { it.channelTitle }.eachCount()
             .maxByOrNull { it.value }?.key?.takeIf { it.isNotBlank() }
-        val topics = HomeTopics.topics.shuffled().take(6).map { it.queries.random() }
+        val topics = HomeTopics.topics.shuffled().take(8).map { it.queries.random() }
 
-        return related + listOfNotNull(favourite) + HomeTopics.trending.take(2) + topics
+        return related + listOfNotNull(favourite) + topics
     }
 
     /** Switches Home between the normal mix and the study subjects. */
@@ -89,7 +99,16 @@ class HomeViewModel : ViewModel() {
         generation += 1
         val mine = generation
 
-        _state.update { it.copy(chip = index, loading = true, items = emptyList(), note = null, error = null) }
+        _state.update {
+            it.copy(
+                chip = index,
+                loading = true,
+                items = emptyList(),
+                note = null,
+                error = null,
+                sections = study == null && index == 0
+            )
+        }
 
         viewModelScope.launch {
             val config = study
@@ -177,7 +196,89 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    fun refresh() = select(_state.value.chip)
+    fun refresh() {
+        select(_state.value.chip)
+        reloadContinue()
+
+        if (_state.value.trending.isEmpty()) loadTrending()
+    }
+
+    /** Videos that were started but not finished, most recent first. */
+    fun reloadContinue() {
+        viewModelScope.launch {
+            val rows = try {
+                AyuApp.container.library.history(80)
+            } catch (_: Exception) {
+                emptyList()
+            }
+
+            val unfinished = rows
+                .filter { row ->
+                    val length = row.durationSeconds ?: 0
+
+                    length > 0 && row.progressSeconds >= 10 && row.progressSeconds * 100 < length * 92
+                }
+                .take(8)
+                .map { row ->
+                    val length = row.durationSeconds ?: 1
+
+                    ContinueItem(
+                        VideoItem(
+                            id = row.videoId,
+                            title = row.title,
+                            channel = row.channelTitle,
+                            channelId = row.channelId,
+                            thumbnail = row.thumbnailUrl,
+                            durationSec = length.toLong(),
+                            views = -1,
+                            uploaded = "",
+                            avatar = ""
+                        ),
+                        row.progressSeconds.toFloat() / length
+                    )
+                }
+
+            _state.update { it.copy(continueWatching = unfinished) }
+        }
+    }
+
+    private fun loadTrending() {
+        val feed = FeedBuilder(HomeTopics.trending)
+
+        trendingBuilder = feed
+        _state.update { it.copy(trendingLoading = true) }
+
+        viewModelScope.launch {
+            val first = try {
+                feed.nextBatch(9)
+            } catch (_: Exception) {
+                emptyList()
+            }
+
+            _state.update { it.copy(trending = first, trendingLoading = false) }
+        }
+    }
+
+    /** Called when the person scrolls the trending rows near their end. */
+    fun loadMoreTrending() {
+        val feed = trendingBuilder ?: return
+
+        if (loadingMoreTrending || _state.value.trendingLoading) return
+
+        loadingMoreTrending = true
+
+        viewModelScope.launch {
+            try {
+                val more = feed.nextBatch(8)
+
+                _state.update { current -> current.copy(trending = (current.trending + more).distinctBy { it.id }) }
+            } catch (_: Exception) {
+                // The next scroll tries again.
+            } finally {
+                loadingMoreTrending = false
+            }
+        }
+    }
 
     fun loadMore() {
         val feed = builder ?: return

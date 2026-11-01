@@ -1,5 +1,18 @@
 package com.ayutube.kt.ui.watch
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Spacer
@@ -483,58 +496,34 @@ fun WatchScreen(
                 }
 
                 item {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.Top) {
-                        Column(Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.clickable { onChannel(video) }) {
-                                    ChannelAvatar(video.channel, video.avatar, video.channelId, size = 38)
-                                }
+                    var moreOpen by remember { mutableStateOf(false) }
 
-                                Text(
-                                    video.channel,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)
-                                        .clickable { onChannel(video) }
-                                )
-                            }
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(Modifier.clickable { onChannel(video) }) {
+                            ChannelAvatar(video.channel, video.avatar, video.channelId, size = 38)
+                        }
 
-                            // Starts under the name (avatar 38 + gap 12, minus the icon's own padding) and ends before Follow.
-                            Row(
-                                Modifier.fillMaxWidth().padding(start = 42.dp, end = 6.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                ActionIcon(AyIcons.Heart, "Like", active = liked) {
-                                    scope.launch {
-                                        if (liked) library.unlike(video.id) else library.like(video)
-                                        liked = !liked
-                                        Toast.makeText(context, if (liked) "Liked" else "Removed from liked", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                                ActionIcon(AyIcons.Clock, "Watch later", active = saved) {
-                                    scope.launch {
-                                        if (saved) library.removeWatchLater(video.id) else library.addWatchLater(video)
-                                        saved = !saved
-                                        Toast.makeText(
-                                            context,
-                                            if (saved) "Added to watch later" else "Removed from watch later",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                }
-                                ActionIcon(AyIcons.PlaylistAdd, "Add to playlist", active = false) { menuOpen = true }
-                                ActionIcon(AyIcons.Share, "Share", active = false) {
-                                    val send = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, "https://youtu.be/${video.id}")
-                                    }
+                        Text(
+                            video.channel,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).padding(start = 12.dp, end = 4.dp).clickable { onChannel(video) }
+                        )
 
-                                    context.startActivity(Intent.createChooser(send, "Share"))
-                                }
+                        LikeHeart(liked = liked) {
+                            scope.launch {
+                                if (liked) library.unlike(video.id) else library.like(video)
+                                liked = !liked
+                                Toast.makeText(context, if (liked) "Liked" else "Removed from liked", Toast.LENGTH_SHORT).show()
                             }
                         }
+
+                        Spacer(Modifier.width(4.dp))
 
                         AyButton(
                             text = if (following) "Following" else "Follow",
@@ -552,6 +541,65 @@ fun WatchScreen(
                                 }
                             }
                         )
+
+                        Spacer(Modifier.width(2.dp))
+
+                        Box {
+                            Box(
+                                Modifier.size(36.dp).clip(CircleShape).clickable { moreOpen = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(AyIcons.More, contentDescription = "More", tint = Ay.Paper, modifier = Modifier.size(22.dp))
+                            }
+
+                            DropdownMenu(
+                                expanded = moreOpen,
+                                onDismissRequest = { moreOpen = false },
+                                modifier = Modifier.background(Ay.Slate)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(if (saved) "Remove from watch later" else "Watch later", color = Ay.Paper) },
+                                    leadingIcon = {
+                                        Icon(AyIcons.Clock, null, tint = if (saved) Ay.Pink else Ay.Paper, modifier = Modifier.size(20.dp))
+                                    },
+                                    onClick = {
+                                        moreOpen = false
+
+                                        scope.launch {
+                                            if (saved) library.removeWatchLater(video.id) else library.addWatchLater(video)
+                                            saved = !saved
+                                            Toast.makeText(
+                                                context,
+                                                if (saved) "Added to watch later" else "Removed from watch later",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Add to playlist", color = Ay.Paper) },
+                                    leadingIcon = { Icon(AyIcons.PlaylistAdd, null, tint = Ay.Paper, modifier = Modifier.size(20.dp)) },
+                                    onClick = {
+                                        moreOpen = false
+                                        menuOpen = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Share", color = Ay.Paper) },
+                                    leadingIcon = { Icon(AyIcons.Share, null, tint = Ay.Paper, modifier = Modifier.size(20.dp)) },
+                                    onClick = {
+                                        moreOpen = false
+
+                                        val send = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, "https://youtu.be/${video.id}")
+                                        }
+
+                                        context.startActivity(Intent.createChooser(send, "Share"))
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -713,7 +761,7 @@ fun WatchScreen(
                         Text("Playback", fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
                         row("Quality", session.quality?.label ?: "Auto") { sheet = "quality" }
                         row("Speed", if (session.speed == 1f) "Normal" else "${session.speed}x") { sheet = "speed" }
-                        row("Audio", session.audio?.let { "${it.averageBitrate} kbps" } ?: "Default") { sheet = "audio" }
+                        row("Audio language", session.audioLanguages().firstOrNull { it.selected }?.label ?: "Default") { sheet = "audio" }
                         row(
                             "Captions",
                             session.captions.firstOrNull { it.language == session.caption }?.label
@@ -752,10 +800,22 @@ fun WatchScreen(
                         }
                     }
                     else -> {
-                        Text("Audio", fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-                        session.audios.forEach { track ->
-                            row("${track.averageBitrate} kbps", track.format?.name, track == session.audio) {
-                                session.quality?.let { session.apply(it, if (it.muxed) null else track) }
+                        Text("Audio language", fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+
+                        val languages = session.audioLanguages()
+
+                        if (languages.size <= 1) {
+                            Text(
+                                "This video has only one audio language.",
+                                color = Ay.Fog,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                            )
+                        }
+
+                        languages.forEach { language ->
+                            row(language.label, selected = language.selected) {
+                                session.selectAudioLanguage(language.code)
                                 sheet = null
                             }
                         }
@@ -766,31 +826,88 @@ fun WatchScreen(
     }
 }
 
-/** A bare icon button that lights up in the app's pink for a moment (or while it is switched on). */
-@Composable
-private fun ActionIcon(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
-    var flash by remember { mutableStateOf(false) }
+private val HeartPath: Path by lazy {
+    runCatching {
+        PathParser().parsePathString(
+            "M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
+        ).toPath()
+    }.getOrElse { Path() }
+}
 
-    LaunchedEffect(flash) {
-        if (flash) {
-            delay(450)
-            flash = false
-        }
-    }
+/** A heart that fills pink and blooms (a pop and a little burst of dots) when it is liked. */
+@Composable
+private fun LikeHeart(liked: Boolean, onClick: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val scale = remember { Animatable(1f) }
+    val burst = remember { Animatable(1f) }
 
     Box(
-        Modifier.size(38.dp).clip(CircleShape).clickable {
-            flash = true
+        Modifier.size(38.dp).clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null
+        ) {
+            val willLike = !liked
+
             onClick()
+
+            scope.launch {
+                if (willLike) {
+                    launch {
+                        burst.snapTo(0f)
+                        burst.animateTo(1f, tween(560))
+                    }
+
+                    scale.snapTo(0.55f)
+                    scale.animateTo(1f, spring(dampingRatio = 0.32f, stiffness = 360f))
+                } else {
+                    scale.animateTo(0.82f, tween(80))
+                    scale.animateTo(1f, tween(140))
+                }
+            }
         },
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            icon,
-            contentDescription = label,
-            tint = if (active || flash) Ay.Pink else Ay.Paper,
-            modifier = Modifier.size(22.dp)
-        )
+        Canvas(Modifier.requiredSize(64.dp)) {
+            val heart = 22.dp.toPx() * scale.value
+            val c = Offset(size.width / 2f, size.height / 2f)
+
+            withTransform({
+                translate(c.x - heart / 2f, c.y - heart / 2f)
+                scale(heart / 24f, heart / 24f, Offset.Zero)
+            }) {
+                if (liked) drawPath(HeartPath, Ay.Pink)
+
+                drawPath(
+                    HeartPath,
+                    if (liked) Ay.Pink else Ay.Paper,
+                    style = Stroke(width = 1.9f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+            }
+
+            val t = burst.value
+
+            if (t < 1f) {
+                val fade = 1f - t
+
+                drawCircle(
+                    Ay.Pink.copy(alpha = fade * 0.55f),
+                    radius = 10.dp.toPx() + 14.dp.toPx() * t,
+                    center = c,
+                    style = Stroke(1.6.dp.toPx())
+                )
+
+                for (i in 0 until 8) {
+                    val angle = i * (Math.PI * 2 / 8)
+                    val r = 11.dp.toPx() + 12.dp.toPx() * t
+
+                    drawCircle(
+                        Ay.Pink.copy(alpha = fade),
+                        radius = 2.4.dp.toPx() * (1f - 0.5f * t),
+                        center = Offset(c.x + (kotlin.math.cos(angle) * r).toFloat(), c.y + (kotlin.math.sin(angle) * r).toFloat())
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -808,7 +925,7 @@ private fun ThinSeekBar(
     var last by remember { mutableFloatStateOf(0f) }
     val scrub by rememberUpdatedState(onScrub)
     val done by rememberUpdatedState(onDone)
-    val thumb by animateDpAsState(if (scrubbing) 30.dp else 22.dp, label = "thumb")
+    val thumb by animateDpAsState(if (scrubbing) 24.dp else 17.dp, label = "thumb")
     val shown = fraction.coerceIn(0f, 1f)
 
     Box(
@@ -863,7 +980,7 @@ private fun ThinSeekBar(
                 translate(played, cy)
                 scale(k, k, Offset.Zero)
                 translate(-AyuLogo.MARK_CX, -AyuLogo.MARK_CY)
-            }) { drawMascot() }
+            }) { drawMascot(eyeColor = AyuLogo.Background) }
         }
     }
 }
