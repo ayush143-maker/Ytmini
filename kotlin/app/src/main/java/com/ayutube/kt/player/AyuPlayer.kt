@@ -1,5 +1,7 @@
 package com.ayutube.kt.player
 
+import androidx.media3.datasource.DefaultDataSource
+import java.io.File
 import org.schabi.newpipe.extractor.stream.AudioTrackType
 import android.content.Context
 import android.net.Uri
@@ -39,6 +41,8 @@ data class QualityOption(val label: String, val video: VideoStream, val muxed: B
 /** ExoPlayer wrapper that plays what NewPipeExtractor found. */
 @OptIn(UnstableApi::class)
 class AyuPlayer(context: Context) {
+    private val appContext = context.applicationContext
+
     private val dataFactory: DataSource.Factory = OkHttpDataSource.Factory(
         OkHttpClient.Builder()
             .addInterceptor { chain ->
@@ -151,6 +155,26 @@ class AyuPlayer(context: Context) {
         parts += subtitles
 
         val media = if (parts.size == 1) video else MergingMediaSource(*parts.toTypedArray())
+
+        exo.setMediaSource(media, positionMs)
+        exo.prepare()
+        exo.playWhenReady = true
+    }
+
+    /** Plays downloaded files: [videoFile] with [audioFile] merged in, or just one of them. */
+    fun playFiles(videoFile: String, audioFile: String?, positionMs: Long, meta: MediaMetadata? = null) {
+        val factory = ProgressiveMediaSource.Factory(DefaultDataSource.Factory(appContext))
+
+        fun part(path: String, withMeta: Boolean): MediaSource {
+            val item = MediaItem.Builder().setUri(Uri.fromFile(File(path))).apply {
+                if (meta != null && withMeta) setMediaMetadata(meta)
+            }.build()
+
+            return factory.createMediaSource(item)
+        }
+
+        val video = part(videoFile, true)
+        val media = if (audioFile != null) MergingMediaSource(video, part(audioFile, false)) else video
 
         exo.setMediaSource(media, positionMs)
         exo.prepare()

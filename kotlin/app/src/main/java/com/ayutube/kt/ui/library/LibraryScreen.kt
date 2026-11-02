@@ -1,5 +1,6 @@
 package com.ayutube.kt.ui.library
 
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -66,7 +67,7 @@ import kotlinx.coroutines.launch
 
 private class Entry(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val target: Int, val count: Int)
 
-private val SECTIONS = listOf("Overview", "Playlists", "Watch later", "Liked", "History", "Following")
+private val SECTIONS = listOf("Overview", "Playlists", "Watch later", "Liked", "History", "Following", "Downloads")
 
 private fun video(id: String, title: String, channel: String, thumbnail: String, channelId: String = "") = VideoItem(
     id = id, title = title, channel = channel, channelId = channelId, thumbnail = thumbnail,
@@ -114,6 +115,7 @@ private fun BlockShape(kind: Int) {
 fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
     val library = remember { AyuApp.container.library }
     val scope = rememberCoroutineScope()
+    val downloads by remember { AyuApp.container.downloads.observeAll() }.collectAsState(initial = emptyList())
 
     var section by remember { mutableIntStateOf(0) }
     var refresh by remember { mutableIntStateOf(0) }
@@ -169,6 +171,7 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
             when (section) {
                 0 -> {
                     val entries = listOf(
+                        Entry("Downloads", AyIcons.Download, 6, downloads.size),
                         Entry("Watch later", AyIcons.Clock, 2, stats?.watchLater ?: 0),
                         Entry("Playlists", AyIcons.Playlist, 1, stats?.playlists ?: 0),
                         Entry("Liked videos", AyIcons.Heart, 3, stats?.likes ?: 0),
@@ -365,6 +368,24 @@ fun LibraryScreen(onOpen: (VideoItem) -> Unit) {
                             onMore = { menuFor = entry to "history" }
                         ) { onOpen(entry) }
                     }
+                }
+
+                6 -> {
+                    item {
+                        if (downloads.isNotEmpty()) {
+                            Box(Modifier.padding(16.dp)) {
+                                AyButton("Delete all", danger = true, onClick = { AyuApp.container.downloader.deleteAll() })
+                            }
+                        } else {
+                            Text(
+                                "Nothing downloaded yet. Use the three-dot menu on a video.",
+                                color = Ay.Fog,
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        }
+                    }
+
+                    items(downloads, key = { "d-" + it.videoId }) { row -> DownloadRow(row, onOpen) }
                 }
 
                 else -> {

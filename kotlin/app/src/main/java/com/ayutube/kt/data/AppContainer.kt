@@ -10,6 +10,8 @@ class AppContainer(context: Context) {
     val settings = SettingsStore(context)
     private val database = AyuDatabase.create(context)
     val library = LibraryRepository(database.library(), settings)
+    val downloads = database.downloads()
+    val downloader = Downloader(context.applicationContext, downloads)
     val recents = RecentSearches(context)
-    val playback = PlaybackSession(context, settings, library)
+    val playback = PlaybackSession(context, settings, library, downloads)
 }

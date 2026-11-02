@@ -1,5 +1,8 @@
 package com.ayutube.kt.player
 
+import com.ayutube.kt.data.db.DownloadDao
+import com.ayutube.kt.data.db.DownloadEntity
+import java.io.File
 import androidx.core.text.HtmlCompat
 import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.ServiceList
@@ -64,7 +67,8 @@ private data class Skip(val startMs: Long, val endMs: Long)
 class PlaybackSession(
     context: Context,
     private val settings: SettingsStore,
-    private val library: LibraryRepository
+    private val library: LibraryRepository,
+    private val downloads: DownloadDao
 ) {
     private val appContext = context.applicationContext
 
@@ -93,6 +97,7 @@ class PlaybackSession(
     var commentsLoading by mutableStateOf(false)
     var commentsDisabled by mutableStateOf(false)
     var commentsFailed by mutableStateOf(false)
+    var offlinePlayback by mutableStateOf(false)
         private set
     var chapters by mutableStateOf<List<Chapter>>(emptyList())
         private set
@@ -261,12 +266,41 @@ class PlaybackSession(
         commentsFailed = false
         commentsInfo = null
         commentsNext = null
+        offlinePlayback = false
         positionMs = 0L
         durationMs = 0L
         ayu.exo.stop()
 
         startService()
-        loadJob = scope.launch { load(next) }
+        loadJob = scope.launch {
+            val saved = try {
+                downloads.get(next.id)
+            } catch (_: Exception) {
+                null
+            }
+
+            // A finished download is played from the phone, so it works without internet.
+            if (saved != null && saved.status == "DONE" && (saved.videoPath ?: saved.audioPath)?.let { File(it).isFile } == true) {
+                openOffline(next, saved)
+            } else {
+                load(next)
+            }
+        }
+    }
+
+    private suspend fun openOffline(next: VideoItem, saved: DownloadEntity) {
+        val resume = library.historyOf(next.id)?.progressSeconds?.takeIf { it > 5 }?.let { it * 1000L } ?: 0L
+
+        if (video?.id != next.id) return
+
+        offlinePlayback = true
+
+        val picture = saved.videoPath
+        val sound = saved.audioPath
+
+        ayu.playFiles(picture ?: sound ?: return, if (picture != null) sound else null, resume, meta(next))
+        ayu.setCaption(null)
+        ayu.setSpeed(speed)
     }
 
     private fun meta(item: VideoItem): MediaMetadata = MediaMetadata.Builder()

@@ -684,8 +684,12 @@ fun WatchScreen(
 
                 item { HorizontalDivider(color = Color.White, thickness = 2.dp) }
 
-                if (session.related.isEmpty()) {
+                if (session.related.isEmpty() && !session.offlinePlayback) {
                     items(3) { VideoCardSkeleton(Modifier.padding(top = 12.dp)) }
+                }
+
+                if (session.offlinePlayback) {
+                    item { Text("Playing from your downloads.", color = Ay.Fog, fontSize = 13.sp, modifier = Modifier.padding(16.dp)) }
                 }
 
                 items(session.related, key = { "n-" + it.id }) { next ->

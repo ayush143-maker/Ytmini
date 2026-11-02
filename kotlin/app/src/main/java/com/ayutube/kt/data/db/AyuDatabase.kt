@@ -15,13 +15,15 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         HistoryEntity::class,
         LikeEntity::class,
         ChannelPrefEntity::class,
-        NoteEntity::class
+        NoteEntity::class,
+        DownloadEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AyuDatabase : RoomDatabase() {
     abstract fun library(): LibraryDao
+    abstract fun downloads(): DownloadDao
 
     companion object {
         /** Rows now remember which channel a video came from (for its picture). */
@@ -33,9 +35,34 @@ abstract class AyuDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds the table that remembers downloaded videos. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS downloads (" +
+                        "video_id TEXT NOT NULL, " +
+                        "title TEXT NOT NULL, " +
+                        "channel_title TEXT NOT NULL, " +
+                        "channel_id TEXT NOT NULL, " +
+                        "thumbnail_url TEXT NOT NULL, " +
+                        "thumb_path TEXT, " +
+                        "duration_seconds INTEGER NOT NULL, " +
+                        "status TEXT NOT NULL, " +
+                        "quality INTEGER NOT NULL, " +
+                        "progress INTEGER NOT NULL, " +
+                        "size_bytes INTEGER NOT NULL, " +
+                        "video_path TEXT, " +
+                        "audio_path TEXT, " +
+                        "error TEXT, " +
+                        "created_at INTEGER NOT NULL, " +
+                        "PRIMARY KEY(video_id))"
+                )
+            }
+        }
+
         fun create(context: Context): AyuDatabase =
             Room.databaseBuilder(context, AyuDatabase::class.java, "ayutube.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
     }
 }
