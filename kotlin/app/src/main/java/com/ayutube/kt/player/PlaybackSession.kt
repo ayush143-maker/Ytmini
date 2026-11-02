@@ -164,7 +164,7 @@ class PlaybackSession(
         commentsLoading = true
 
         try {
-            val result = withContext(Dispatchers.IO) { CommentsInfo.getInfo(streams) }
+            val result = withContext(Dispatchers.IO) { CommentsInfo.getInfo(streams.url) }
 
             if (video?.id != id) return
 
