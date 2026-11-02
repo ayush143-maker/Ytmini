@@ -1,5 +1,6 @@
 package com.ayutube.kt.ui.home
 
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +41,10 @@ import com.ayutube.kt.ui.components.formatClock
 import com.ayutube.kt.ui.components.shimmer
 import com.ayutube.kt.ui.theme.Ay
 
+/** Cards in the sideways rows are 90% as wide as a normal full-width video picture. */
+@Composable
+private fun cardWidth(): Dp = (LocalConfiguration.current.screenWidthDp * 0.9f).dp
+
 /** Title above a Home section ("Continue Watching", "Trending Now", "Feed"). */
 @Composable
 fun HomeTitle(text: String) {
@@ -55,7 +60,7 @@ fun HomeTitle(text: String) {
 @Composable
 fun CompactVideoCard(video: VideoItem, width: Dp, progress: Float? = null, onClick: () -> Unit) {
     Column(Modifier.width(width).clickable(onClick = onClick)) {
-        Box(Modifier.clip(RoundedCornerShape(6.dp))) {
+        Box {
             AsyncImage(
                 model = video.thumbnail,
                 contentDescription = null,
@@ -87,9 +92,9 @@ fun CompactVideoCard(video: VideoItem, width: Dp, progress: Float? = null, onCli
 
         Text(
             video.title,
-            fontSize = 13.sp,
+            fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
-            lineHeight = 17.sp,
+            lineHeight = 18.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 7.dp)
@@ -108,12 +113,14 @@ fun CompactVideoCard(video: VideoItem, width: Dp, progress: Float? = null, onCli
 /** Videos the person started but did not finish, in one sideways row. */
 @Composable
 fun ContinueRow(items: List<ContinueItem>, onOpen: (VideoItem) -> Unit) {
+    val width = cardWidth()
+
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(items, key = { entry -> entry.video.id }) { entry ->
-            CompactVideoCard(entry.video, 170.dp, entry.progress) { onOpen(entry.video) }
+            CompactVideoCard(entry.video, width, entry.progress) { onOpen(entry.video) }
         }
     }
 }
@@ -127,6 +134,8 @@ fun TrendingGrid(
     onEnd: () -> Unit
 ) {
     val gridState = rememberLazyGridState()
+    val width = cardWidth()
+    val gridHeight = (width * 9f / 16f + 64.dp) * 2f + 12.dp
     val nearEnd by remember(videos.size) {
         derivedStateOf {
             val last = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
@@ -142,15 +151,15 @@ fun TrendingGrid(
     LazyHorizontalGrid(
         rows = GridCells.Fixed(2),
         state = gridState,
-        modifier = Modifier.fillMaxWidth().height(304.dp),
+        modifier = Modifier.fillMaxWidth().height(gridHeight),
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (videos.isEmpty() && loading) {
             items(8) {
-                Column(Modifier.width(150.dp)) {
-                    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp)).shimmer())
+                Column(Modifier.width(width)) {
+                    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).shimmer())
                     Box(Modifier.padding(top = 8.dp).fillMaxWidth(0.9f).height(12.dp).shimmer())
                     Box(Modifier.padding(top = 6.dp).fillMaxWidth(0.5f).height(11.dp).shimmer())
                 }
@@ -158,7 +167,7 @@ fun TrendingGrid(
         }
 
         items(videos, key = { video -> video.id }) { video ->
-            CompactVideoCard(video, 150.dp) { onOpen(video) }
+            CompactVideoCard(video, width) { onOpen(video) }
         }
     }
 }

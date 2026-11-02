@@ -1,5 +1,7 @@
 package com.ayutube.kt.ui.components
 
+import android.content.Intent
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -44,12 +46,13 @@ fun MenuRow(icon: ImageVector, label: String, onClick: () -> Unit) {
     }
 }
 
-/** The three-dot menu: Watch later, Add to playlist, Go to channel. */
+/** The three-dot menu: Watch later, Add to playlist, Share, Go to channel. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoMenuSheet(video: VideoItem, onDismiss: () -> Unit, onChannel: (VideoItem) -> Unit) {
     val library = remember { AyuApp.container.library }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     var saved by remember { mutableStateOf(false) }
     var picking by remember { mutableStateOf(false) }
@@ -80,6 +83,15 @@ fun VideoMenuSheet(video: VideoItem, onDismiss: () -> Unit, onChannel: (VideoIte
                     }
                 }
                 MenuRow(AyIcons.Playlist, "Add to playlist") { picking = true }
+                MenuRow(AyIcons.Share, "Share") {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, "https://youtu.be/${video.id}")
+                    }
+
+                    context.startActivity(Intent.createChooser(send, "Share"))
+                    onDismiss()
+                }
 
                 if (video.channelId.isNotEmpty()) {
                     MenuRow(AyIcons.People, "Go to ${video.channel}") {

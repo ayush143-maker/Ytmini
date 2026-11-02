@@ -1,5 +1,10 @@
 package com.ayutube.kt.player
 
+import androidx.core.text.HtmlCompat
+import org.schabi.newpipe.extractor.Page
+import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.comments.CommentsInfo
+import org.schabi.newpipe.extractor.comments.CommentsInfoItem
 import java.util.Locale
 import android.content.Context
 import android.content.Intent
@@ -37,6 +42,18 @@ data class Chapter(val title: String, val startSeconds: Int)
 /** One choice in the audio language menu. [code] is null for the original track. */
 data class AudioLanguage(val code: String?, val label: String, val selected: Boolean)
 
+/** One comment, with the text already turned into plain text. */
+data class CommentItem(
+    val author: String,
+    val avatar: String,
+    val text: String,
+    val likes: String,
+    val age: String,
+    val pinned: Boolean,
+    val hearted: Boolean,
+    val replies: Int
+)
+
 private data class Skip(val startMs: Long, val endMs: Long)
 
 /**
@@ -71,6 +88,10 @@ class PlaybackSession(
         private set
     var error by mutableStateOf<String?>(null)
     var related by mutableStateOf<List<VideoItem>>(emptyList())
+    var comments by mutableStateOf<List<CommentItem>>(emptyList())
+    var commentsLoading by mutableStateOf(false)
+    var commentsDisabled by mutableStateOf(false)
+    var commentsFailed by mutableStateOf(false)
         private set
     var chapters by mutableStateOf<List<Chapter>>(emptyList())
         private set
@@ -93,6 +114,9 @@ class PlaybackSession(
 
     private var skips: List<Skip> = emptyList()
     private var loadJob: Job? = null
+    private var commentsJob: Job? = null
+    private var commentsInfo: CommentsInfo? = null
+    private var commentsNext: Page? = null
 
     init {
         ayu.exo.addListener(object : Player.Listener {
@@ -136,6 +160,71 @@ class PlaybackSession(
         }
     }
 
+    private suspend fun loadComments(streams: StreamInfo, id: String) {
+        commentsLoading = true
+
+        try {
+            val result = withContext(Dispatchers.IO) { CommentsInfo.getInfo(streams) }
+
+            if (video?.id != id) return
+
+            commentsInfo = result
+            commentsDisabled = result.isCommentsDisabled
+            comments = result.relatedItems.map { toComment(it) }
+            commentsNext = result.nextPage?.takeIf { Page.isValid(it) }
+        } catch (failure: kotlinx.coroutines.CancellationException) {
+            throw failure
+        } catch (_: Exception) {
+            if (video?.id == id) commentsFailed = true
+        } finally {
+            if (video?.id == id) commentsLoading = false
+        }
+    }
+
+    /** Asks for the next batch of comments; does nothing when there is none or one is already coming. */
+    fun loadMoreComments() {
+        val info = commentsInfo ?: return
+        val page = commentsNext ?: return
+        val id = video?.id ?: return
+
+        if (commentsLoading) return
+
+        commentsLoading = true
+
+        commentsJob = scope.launch {
+            try {
+                val more = withContext(Dispatchers.IO) { CommentsInfo.getMoreItems(ServiceList.YouTube, info, page) }
+
+                if (video?.id != id) return@launch
+
+                comments = comments + more.items.map { toComment(it) }
+                commentsNext = more.nextPage?.takeIf { Page.isValid(it) }
+            } catch (failure: kotlinx.coroutines.CancellationException) {
+                throw failure
+            } catch (_: Exception) {
+                // Scrolling again tries once more.
+            } finally {
+                if (video?.id == id) commentsLoading = false
+            }
+        }
+    }
+
+    private fun toComment(item: CommentsInfoItem): CommentItem {
+        val raw = item.commentText?.content.orEmpty()
+        val text = HtmlCompat.fromHtml(raw, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim()
+
+        return CommentItem(
+            author = item.uploaderName.orEmpty(),
+            avatar = item.uploaderAvatars.lastOrNull()?.url.orEmpty(),
+            text = text,
+            likes = item.textualLikeCount?.takeIf { it.isNotEmpty() } ?: item.likeCount.takeIf { it > 0 }?.toString().orEmpty(),
+            age = item.textualUploadDate.orEmpty(),
+            pinned = item.isPinned,
+            hearted = item.isHeartedByUploader,
+            replies = item.replyCount
+        )
+    }
+
     fun saveProgress() {
         val current = video ?: return
         val seconds = (ayu.exo.currentPosition / 1000).toInt()
@@ -163,6 +252,13 @@ class PlaybackSession(
         captions = emptyList()
         caption = null
         skips = emptyList()
+        commentsJob?.cancel()
+        comments = emptyList()
+        commentsLoading = false
+        commentsDisabled = false
+        commentsFailed = false
+        commentsInfo = null
+        commentsNext = null
         positionMs = 0L
         durationMs = 0L
         ayu.exo.stop()
@@ -197,6 +293,9 @@ class PlaybackSession(
             options = ayu.qualities(streams)
             audios = ayu.audios(streams)
             chapters = streams.streamSegments.orEmpty().map { Chapter(it.title.orEmpty(), it.startTimeSeconds) }
+
+            // Comments load on their own, so they never hold up the video.
+            commentsJob = scope.launch { loadComments(streams, next.id) }
 
             captions = streams.subtitles.orEmpty()
                 .filter { it.isUrl }
@@ -379,6 +478,8 @@ class PlaybackSession(
     fun stop() {
         saveProgress()
         loadJob?.cancel()
+        commentsJob?.cancel()
+        comments = emptyList()
         ayu.exo.stop()
         video = null
         info = null

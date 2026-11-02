@@ -1,5 +1,14 @@
 package com.ayutube.kt.ui.watch
 
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.Dp
+import coil.compose.AsyncImage
+import com.ayutube.kt.player.CommentItem
+import com.ayutube.kt.player.PlaybackSession
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -161,6 +170,7 @@ fun WatchScreen(
     var controlsTick by remember { mutableIntStateOf(0) }
     var sheet by remember { mutableStateOf<String?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
+    var showComments by remember { mutableStateOf(false) }
     var descOpen by remember { mutableStateOf(false) }
     var hud by remember { mutableStateOf<String?>(null) }
     var scrubbing by remember { mutableStateOf<Float?>(null) }
@@ -496,8 +506,6 @@ fun WatchScreen(
                 }
 
                 item {
-                    var moreOpen by remember { mutableStateOf(false) }
-
                     Row(
                         Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -544,64 +552,16 @@ fun WatchScreen(
 
                         Spacer(Modifier.width(2.dp))
 
-                        Box {
-                            Box(
-                                Modifier.size(36.dp).clip(CircleShape).clickable { moreOpen = true },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(AyIcons.More, contentDescription = "More", tint = Ay.Paper, modifier = Modifier.size(22.dp))
-                            }
-
-                            DropdownMenu(
-                                expanded = moreOpen,
-                                onDismissRequest = { moreOpen = false },
-                                modifier = Modifier.background(Ay.Slate)
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text(if (saved) "Remove from watch later" else "Watch later", color = Ay.Paper) },
-                                    leadingIcon = {
-                                        Icon(AyIcons.Clock, null, tint = if (saved) Ay.Pink else Ay.Paper, modifier = Modifier.size(20.dp))
-                                    },
-                                    onClick = {
-                                        moreOpen = false
-
-                                        scope.launch {
-                                            if (saved) library.removeWatchLater(video.id) else library.addWatchLater(video)
-                                            saved = !saved
-                                            Toast.makeText(
-                                                context,
-                                                if (saved) "Added to watch later" else "Removed from watch later",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Add to playlist", color = Ay.Paper) },
-                                    leadingIcon = { Icon(AyIcons.PlaylistAdd, null, tint = Ay.Paper, modifier = Modifier.size(20.dp)) },
-                                    onClick = {
-                                        moreOpen = false
-                                        menuOpen = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Share", color = Ay.Paper) },
-                                    leadingIcon = { Icon(AyIcons.Share, null, tint = Ay.Paper, modifier = Modifier.size(20.dp)) },
-                                    onClick = {
-                                        moreOpen = false
-
-                                        val send = Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(Intent.EXTRA_TEXT, "https://youtu.be/${video.id}")
-                                        }
-
-                                        context.startActivity(Intent.createChooser(send, "Share"))
-                                    }
-                                )
-                            }
+                        Box(
+                            Modifier.size(36.dp).clip(CircleShape).clickable { menuOpen = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(AyIcons.More, contentDescription = "More", tint = Ay.Paper, modifier = Modifier.size(22.dp))
                         }
                     }
                 }
+
+                item { CommentsPreview(session) { showComments = true } }
 
                 if (session.chapters.isNotEmpty()) {
                     item {
@@ -737,6 +697,10 @@ fun WatchScreen(
 
     if (menuOpen) {
         VideoMenuSheet(video, onDismiss = { menuOpen = false }, onChannel = onChannel)
+    }
+
+    if (showComments) {
+        CommentsSheet(session, onClose = { showComments = false })
     }
 
     sheet?.let { page ->
@@ -981,6 +945,144 @@ private fun ThinSeekBar(
                 scale(k, k, Offset.Zero)
                 translate(-AyuLogo.MARK_CX, -AyuLogo.MARK_CY)
             }) { drawMascot(eyeColor = AyuLogo.Background) }
+        }
+    }
+}
+
+@Composable
+private fun CommentAvatar(url: String, size: Dp) {
+    AsyncImage(
+        model = url.ifEmpty { null },
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier.size(size).clip(CircleShape).background(Ay.SlateHi)
+    )
+}
+
+/** The "Comments" card under the channel row: shows the top comment and opens the full list. */
+@Composable
+private fun CommentsPreview(session: PlaybackSession, onOpen: () -> Unit) {
+    val top = session.comments.firstOrNull()
+
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Ay.Slate)
+            .clickable(enabled = !session.commentsDisabled, onClick = onOpen)
+            .padding(14.dp)
+    ) {
+        Text("Comments", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+
+        Spacer(Modifier.height(8.dp))
+
+        when {
+            session.commentsDisabled ->
+                Text("Comments are turned off for this video.", color = Ay.Fog, fontSize = 13.sp)
+
+            top != null -> Row(verticalAlignment = Alignment.Top) {
+                CommentAvatar(top.avatar, 26.dp)
+                Text(
+                    top.text,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 10.dp).weight(1f)
+                )
+            }
+
+            session.commentsFailed -> Text("Could not load comments.", color = Ay.Fog, fontSize = 13.sp)
+
+            session.commentsLoading -> Text("Loading comments\u2026", color = Ay.Fog, fontSize = 13.sp)
+
+            else -> Text("No comments yet.", color = Ay.Fog, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun CommentRow(comment: CommentItem) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+        CommentAvatar(comment.avatar, 34.dp)
+
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            val head = buildString {
+                if (comment.pinned) append("Pinned \u00B7 ")
+
+                append(comment.author)
+
+                if (comment.age.isNotEmpty()) append(" \u00B7 ${comment.age}")
+            }
+
+            Text(head, fontSize = 12.sp, color = Ay.Fog, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(comment.text, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 3.dp))
+
+            Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    AyIcons.Heart,
+                    contentDescription = null,
+                    tint = if (comment.hearted) Ay.Pink else Ay.Fog,
+                    modifier = Modifier.size(15.dp)
+                )
+
+                if (comment.likes.isNotEmpty()) {
+                    Text(comment.likes, fontSize = 12.sp, color = Ay.Fog, modifier = Modifier.padding(start = 5.dp))
+                }
+
+                if (comment.replies > 0) {
+                    Text("${comment.replies} replies", fontSize = 12.sp, color = Ay.Fog, modifier = Modifier.padding(start = 16.dp))
+                }
+            }
+        }
+    }
+}
+
+/** All the comments in a bottom sheet; more are asked for when the end gets close. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CommentsSheet(session: PlaybackSession, onClose: () -> Unit) {
+    val listState = rememberLazyListState()
+    val nearEnd by remember {
+        derivedStateOf {
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+
+            session.comments.isNotEmpty() && last >= session.comments.size - 3
+        }
+    }
+
+    LaunchedEffect(nearEnd, session.comments.size) {
+        if (nearEnd) session.loadMoreComments()
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onClose,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = Ay.Slate
+    ) {
+        Text("Comments", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        HorizontalDivider(color = Ay.Steel)
+
+        LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f)) {
+            items(session.comments) { comment -> CommentRow(comment) }
+
+            if (session.comments.isEmpty() && !session.commentsLoading) {
+                item {
+                    Text(
+                        when {
+                            session.commentsDisabled -> "Comments are turned off for this video."
+                            session.commentsFailed -> "Could not load comments."
+                            else -> "No comments yet."
+                        },
+                        color = Ay.Fog,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(20.dp)
+                    )
+                }
+            }
+
+            if (session.commentsLoading) {
+                item { Text("Loading\u2026", color = Ay.Fog, fontSize = 13.sp, modifier = Modifier.padding(20.dp)) }
+            }
         }
     }
 }
