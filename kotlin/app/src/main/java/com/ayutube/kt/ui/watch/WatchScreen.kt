@@ -950,13 +950,8 @@ private fun ThinSeekBar(
 }
 
 @Composable
-private fun CommentAvatar(url: String, size: Dp) {
-    AsyncImage(
-        model = url.ifEmpty { null },
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        modifier = Modifier.size(size).clip(CircleShape).background(Ay.SlateHi)
-    )
+private fun CommentAvatar(comment: CommentItem, size: Int) {
+    ChannelAvatar(comment.author.removePrefix("@"), comment.avatar, comment.channelId, size)
 }
 
 /** The "Comments" card under the channel row: shows the top comment and opens the full list. */
@@ -980,7 +975,7 @@ private fun CommentsPreview(session: PlaybackSession, onOpen: () -> Unit) {
                 Text("Comments are turned off for this video.", color = Ay.Fog, fontSize = 13.sp)
 
             top != null -> Row(verticalAlignment = Alignment.Top) {
-                CommentAvatar(top.avatar, 26.dp)
+                CommentAvatar(top, 26)
                 Text(
                     top.text,
                     fontSize = 13.sp,
@@ -1003,7 +998,7 @@ private fun CommentsPreview(session: PlaybackSession, onOpen: () -> Unit) {
 @Composable
 private fun CommentRow(comment: CommentItem) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
-        CommentAvatar(comment.avatar, 34.dp)
+        CommentAvatar(comment, 34)
 
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             val head = buildString {

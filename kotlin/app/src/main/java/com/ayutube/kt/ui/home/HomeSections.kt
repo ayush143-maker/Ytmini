@@ -1,5 +1,6 @@
 package com.ayutube.kt.ui.home
 
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -125,7 +126,7 @@ fun ContinueRow(items: List<ContinueItem>, onOpen: (VideoItem) -> Unit) {
     }
 }
 
-/** Two sideways rows of trending videos; more are asked for when the end gets close. */
+/** Two sideways rows of trending videos. Each row scrolls on its own; more are asked for near either end. */
 @Composable
 fun TrendingGrid(
     videos: List<VideoItem>,
@@ -133,14 +134,30 @@ fun TrendingGrid(
     onOpen: (VideoItem) -> Unit,
     onEnd: () -> Unit
 ) {
-    val gridState = rememberLazyGridState()
     val width = cardWidth()
-    val gridHeight = (width * 9f / 16f + 64.dp) * 2f + 12.dp
+    val top = remember(videos) { videos.filterIndexed { index, _ -> index % 2 == 0 } }
+    val bottom = remember(videos) { videos.filterIndexed { index, _ -> index % 2 == 1 } }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        TrendingRow(top, loading, width, onOpen, onEnd)
+        TrendingRow(bottom, loading, width, onOpen, onEnd)
+    }
+}
+
+@Composable
+private fun TrendingRow(
+    videos: List<VideoItem>,
+    loading: Boolean,
+    width: Dp,
+    onOpen: (VideoItem) -> Unit,
+    onEnd: () -> Unit
+) {
+    val state = rememberLazyListState()
     val nearEnd by remember(videos.size) {
         derivedStateOf {
-            val last = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val last = state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
 
-            videos.isNotEmpty() && last >= videos.size - 4
+            videos.isNotEmpty() && last >= videos.size - 2
         }
     }
 
@@ -148,16 +165,13 @@ fun TrendingGrid(
         if (nearEnd) onEnd()
     }
 
-    LazyHorizontalGrid(
-        rows = GridCells.Fixed(2),
-        state = gridState,
-        modifier = Modifier.fillMaxWidth().height(gridHeight),
+    LazyRow(
+        state = state,
         contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         if (videos.isEmpty() && loading) {
-            items(8) {
+            items(4) {
                 Column(Modifier.width(width)) {
                     Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).shimmer())
                     Box(Modifier.padding(top = 8.dp).fillMaxWidth(0.9f).height(12.dp).shimmer())

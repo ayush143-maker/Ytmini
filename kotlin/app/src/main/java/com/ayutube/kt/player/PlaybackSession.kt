@@ -46,6 +46,7 @@ data class AudioLanguage(val code: String?, val label: String, val selected: Boo
 data class CommentItem(
     val author: String,
     val avatar: String,
+    val channelId: String,
     val text: String,
     val likes: String,
     val age: String,
@@ -215,7 +216,8 @@ class PlaybackSession(
 
         return CommentItem(
             author = item.uploaderName.orEmpty(),
-            avatar = item.uploaderAvatars.lastOrNull()?.url.orEmpty(),
+            avatar = item.uploaderAvatars.map { it.url.orEmpty() }.lastOrNull { it.startsWith("https://") }.orEmpty(),
+            channelId = item.uploaderUrl.orEmpty().substringAfter("/channel/", "").substringBefore("?").substringBefore("/"),
             text = text,
             likes = item.textualLikeCount?.takeIf { it.isNotEmpty() } ?: item.likeCount.takeIf { it > 0 }?.toString().orEmpty(),
             age = item.textualUploadDate.orEmpty(),
