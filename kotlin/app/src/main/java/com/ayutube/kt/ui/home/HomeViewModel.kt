@@ -7,6 +7,8 @@ import com.ayutube.kt.data.FeedBuilder
 import com.ayutube.kt.data.HomeTopics
 import com.ayutube.kt.data.VideoItem
 import com.ayutube.kt.data.ExtractorRepository
+import com.ayutube.kt.data.TrendingPolicy
+import kotlin.random.Random
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -27,8 +29,12 @@ data class HomeState(
     val sections: Boolean = true,
     val continueWatching: List<ContinueItem> = emptyList(),
     val trending: List<VideoItem> = emptyList(),
-    val trendingLoading: Boolean = true
+    val trendingLoading: Boolean = true,
+    val because: BecauseShelf? = null
 )
+
+/** "Because you watched ...": a few videos related to the last one that was properly watched. */
+data class BecauseShelf(val title: String, val videos: List<VideoItem>)
 
 /** A video that was started but not finished, with how far the person got (0 to 1). */
 data class ContinueItem(val video: VideoItem, val progress: Float)
@@ -45,6 +51,7 @@ class HomeViewModel : ViewModel() {
     private var generation = 0
     private var trendingBuilder: FeedBuilder? = null
     private var loadingMoreTrending = false
+    private var shelfFor: String? = null
 
     init {
         select(0)
@@ -56,20 +63,116 @@ class HomeViewModel : ViewModel() {
             .replace(Regex("[^\\p{L}\\p{N}\\s']"), " ")
             .trim().split(Regex("\\s+")).take(6).joinToString(" ")
 
-    /** Trending, a bit of every topic, and what was watched lately. */
-    private suspend fun allQueries(): List<String> {
-        val history = try {
-            AyuApp.container.library.history(12)
-        } catch (_: Exception) {
-            emptyList()
+    /** What Home searches for, and which videos it leaves out. */
+    private class Taste(val queries: List<String>, val accept: (VideoItem) -> Boolean)
+
+    /**
+     * What the person seems to like, worked out from data on the phone: searches, likes, videos watched
+     * (how far they got counts), the most watched channel and followed channels. Every signal is a
+     * search with a weight, newer and stronger ones weigh more, and a few are picked at random, so one
+     * video never takes over the feed and a refresh still brings something different. The rest of the
+     * feed is a mix of ordinary topics so there is always something new. Videos already watched are left out.
+     */
+    private suspend fun taste(): Taste {
+        val library = AyuApp.container.library
+        val history = try { library.history(150) } catch (_: Exception) { emptyList() }
+        val likes = try { library.likes(8) } catch (_: Exception) { emptyList() }
+        val prefs = try { library.channelPrefs() } catch (_: Exception) { emptyList() }
+        val searches = try { AyuApp.container.recents.all().take(4) } catch (_: Exception) { emptyList() }
+
+        fun completion(progress: Int, length: Int?): Float = when {
+            length != null && length > 0 -> (progress.toFloat() / length).coerceIn(0f, 1f)
+            progress >= 120 -> 0.6f
+            else -> 0.2f
         }
 
-        val related = history.map { shortTitle(it.title) }.filter { it.length > 3 }.distinct().take(2)
-        val favourite = history.groupingBy { it.channelTitle }.eachCount()
-            .maxByOrNull { it.value }?.key?.takeIf { it.isNotBlank() }
-        val topics = HomeTopics.topics.shuffled().take(8).map { it.queries.random() }
+        val watched = history
+            .filter { completion(it.progressSeconds, it.durationSeconds) >= 0.7f }
+            .map { it.videoId }
+            .toSet()
 
-        return related + listOfNotNull(favourite) + topics
+        val signals = mutableListOf<Pair<String, Float>>()
+
+        searches.forEachIndexed { i, text -> signals += text to (4f - i * 0.8f) }
+        likes.take(5).forEachIndexed { i, like -> signals += shortTitle(like.title) to (3f - i * 0.4f) }
+
+        history.take(20).forEachIndexed { i, row ->
+            val done = completion(row.progressSeconds, row.durationSeconds)
+
+            if (done >= 0.15f) signals += shortTitle(row.title) to ((1f + 2f * done) * (1f - i * 0.03f))
+        }
+
+        history
+            .filter { completion(it.progressSeconds, it.durationSeconds) >= 0.3f }
+            .take(30)
+            .groupingBy { it.channelTitle }
+            .eachCount()
+            .maxByOrNull { it.value }
+            ?.key
+            ?.takeIf { it.isNotBlank() }
+            ?.let { signals += it to 2.5f }
+
+        prefs.filter { it.kind == "follow" }.shuffled().take(3).forEach { signals += it.channelName to 2f }
+
+        val pool = signals.filter { it.first.length > 3 }.toMutableList()
+        val picked = mutableListOf<String>()
+
+        while (picked.size < 5 && pool.isNotEmpty()) {
+            var roll = Random.nextDouble() * pool.sumOf { it.second.toDouble() }
+            var index = pool.lastIndex
+
+            for (i in pool.indices) {
+                roll -= pool[i].second
+
+                if (roll <= 0.0) {
+                    index = i
+                    break
+                }
+            }
+
+            val choice = pool.removeAt(index)
+
+            if (picked.none { it.equals(choice.first, ignoreCase = true) }) picked += choice.first
+        }
+
+        val topics = HomeTopics.topics.shuffled().take(if (picked.isEmpty()) 8 else 5).map { it.queries.random() }
+
+        return Taste(picked + topics) { video -> video.id !in watched }
+    }
+
+    /** "Because you watched ...": a few videos YouTube lists as related to the last video that was properly watched. */
+    private fun loadBecause(rows: List<com.ayutube.kt.data.db.HistoryEntity>) {
+        if (study != null) return
+
+        val last = rows.firstOrNull { row ->
+            val length = row.durationSeconds ?: 0
+
+            row.progressSeconds >= 45 && (length <= 0 || row.progressSeconds * 100 >= length * 30)
+        } ?: return
+
+        if (last.videoId == shelfFor) return
+
+        shelfFor = last.videoId
+
+        viewModelScope.launch {
+            try {
+                val info = ExtractorRepository.streams(last.videoId)
+                val mine = taste()
+                val picks = ExtractorRepository.related(info)
+                    .filter { it.id != last.videoId && it.durationSec >= 60 && mine.accept(it) }
+                    .distinctBy { it.id }
+                    .take(5)
+
+                _state.update {
+                    it.copy(because = if (picks.size >= 3) BecauseShelf(shortTitle(last.title), picks) else null)
+                }
+            } catch (failure: kotlinx.coroutines.CancellationException) {
+                throw failure
+            } catch (_: Exception) {
+                // Try again the next time Home opens.
+                shelfFor = null
+            }
+        }
     }
 
     /** Switches Home between the normal mix and the study subjects. */
@@ -117,12 +220,14 @@ class HomeViewModel : ViewModel() {
                 return@launch
             }
 
+            // Study mode keeps its own subject feed exactly as before; only the normal mix is personal.
+            val mine = if (config == null) taste() else null
             val queries = when {
                 config != null -> studyQueries(config, index)
-                index == 0 -> allQueries()
+                index == 0 -> mine?.queries.orEmpty()
                 else -> HomeTopics.topics[index - 2].queries
             }
-            val feed = FeedBuilder(queries)
+            val feed = if (mine != null) FeedBuilder(queries, accept = mine.accept) else FeedBuilder(queries)
 
             builder = feed
 
@@ -239,23 +344,37 @@ class HomeViewModel : ViewModel() {
                 }
 
             _state.update { it.copy(continueWatching = unfinished) }
+
+            loadBecause(rows)
         }
     }
 
     private fun loadTrending() {
-        val feed = FeedBuilder(HomeTopics.trending)
+        val feed = FeedBuilder(TrendingPolicy.queries, TrendingPolicy.MIN_DURATION_SEC, TrendingPolicy.accept(relaxed = false))
 
         trendingBuilder = feed
         _state.update { it.copy(trendingLoading = true) }
 
         viewModelScope.launch {
-            val first = try {
+            var first = try {
                 feed.nextBatch(9)
             } catch (_: Exception) {
                 emptyList()
             }
 
-            _state.update { it.copy(trending = first, trendingLoading = false) }
+            // A quiet week or a slow network can leave the strict filter almost empty: loosen the age and view limits once.
+            if (first.size < 4) {
+                val loose = FeedBuilder(TrendingPolicy.queries, TrendingPolicy.MIN_DURATION_SEC, TrendingPolicy.accept(relaxed = true))
+
+                trendingBuilder = loose
+                first = try {
+                    loose.nextBatch(9)
+                } catch (_: Exception) {
+                    first
+                }
+            }
+
+            _state.update { it.copy(trending = first.sortedByDescending { v -> TrendingPolicy.score(v) }, trendingLoading = false) }
         }
     }
 
@@ -269,7 +388,7 @@ class HomeViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                val more = feed.nextBatch(8)
+                val more = feed.nextBatch(8).sortedByDescending { TrendingPolicy.score(it) }
 
                 _state.update { current -> current.copy(trending = (current.trending + more).distinctBy { it.id }) }
             } catch (_: Exception) {

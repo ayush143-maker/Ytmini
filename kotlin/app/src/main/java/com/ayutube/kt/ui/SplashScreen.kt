@@ -22,6 +22,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
 import com.ayutube.kt.ui.components.AyuLogo
 import com.ayutube.kt.ui.components.drawMascot
 import kotlinx.coroutines.delay
@@ -31,10 +32,20 @@ private const val LETTERS = 7
 // The wordmark's own space (see AyuLogo): its first letter starts at WORD_SRC_X0, the last one ends here.
 private const val WORD_SRC_X1 = 925f
 
+// The system splash (Android 12+) draws drawable/ic_launcher_foreground, a 108 unit canvas, at 288 dp,
+// centred on the screen. The mark in that drawable is 47.6 units wide; in the logo it is 105.4 wide.
+// Drawing the mark at exactly that size and place makes the hand-over from the system splash invisible.
+private const val ICON_CANVAS_DP = 288f
+private const val ICON_CANVAS_UNITS = 108f
+private const val ICON_MARK_UNITS = 47.6f
+private const val LOGO_MARK_UNITS = 105.4f
+
+private const val PULSE_MAX = 1.09f
+
 /**
- * Opening animation, shown right after the system splash: the mark sits in the middle at one fixed
- * size and pulses, "ayutube" is typed out quickly below it (same letters as the logo), then the
- * screen fades into the app.
+ * Opening animation, shown right after the system splash. The mark starts exactly where and how big
+ * the system splash drew it, then pulses; "ayutube" is typed quickly below it (same letters as the
+ * logo), then the screen fades into the app.
  */
 @Composable
 fun SplashOverlay(onDone: () -> Unit) {
@@ -43,13 +54,13 @@ fun SplashOverlay(onDone: () -> Unit) {
 
     val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(
         initialValue = 1f,
-        targetValue = 1.09f,
+        targetValue = PULSE_MAX,
         animationSpec = infiniteRepeatable(tween(460, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "pulseScale"
     )
 
     LaunchedEffect(Unit) {
-        delay(120)
+        delay(140)
         typed.animateTo(LETTERS + 0.4f, tween(560, easing = LinearEasing))
         delay(380)
         fade.animateTo(0f, tween(260))
@@ -63,32 +74,30 @@ fun SplashOverlay(onDone: () -> Unit) {
             .pointerInput(Unit) { detectTapGestures { } }
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
+            val cx = size.width / 2f
+            val cy = size.height / 2f
 
-            // The mark keeps the size it had when the old splash started; the pulse is the only movement.
-            val markK = w * 0.26f / (AyuLogo.MARK_X1 - AyuLogo.MARK_X0)
-            val wordK = w * 0.46f / (WORD_SRC_X1 - AyuLogo.WORD_SRC_X0)
-
+            // Same size as the system splash's mark, same centre.
+            val unit = ICON_CANVAS_DP.dp.toPx() / ICON_CANVAS_UNITS
+            val markK = unit * ICON_MARK_UNITS / LOGO_MARK_UNITS
+            val markW = LOGO_MARK_UNITS * markK
             val markH = AyuLogo.HEIGHT * markK
-            val wordH = AyuLogo.HEIGHT * wordK
-            val gap = w * 0.06f
-
-            // Mark and word are centred on the screen as one block.
-            val top = (h - (markH + gap + wordH)) / 2f
-            val markCy = top + markH / 2f
-            val wordCy = top + markH + gap + wordH / 2f
 
             withTransform({
-                translate(w / 2f, markCy)
+                translate(cx, cy)
                 scale(markK * pulse, markK * pulse, Offset.Zero)
                 translate(-AyuLogo.MARK_CX, -AyuLogo.MARK_CY)
             }) {
                 drawMascot()
             }
 
+            // The word sits below the mark, clear of it even at the biggest point of the pulse.
+            val wordK = markW * 1.55f / (WORD_SRC_X1 - AyuLogo.WORD_SRC_X0)
+            val wordH = AyuLogo.HEIGHT * wordK
+            val wordCy = cy + markH / 2f * PULSE_MAX + markH * 0.28f + wordH / 2f
+
             withTransform({
-                translate(w / 2f, wordCy)
+                translate(cx, wordCy)
                 scale(wordK, wordK, Offset.Zero)
                 translate(-(AyuLogo.WORD_SRC_X0 + WORD_SRC_X1) / 2f, -AyuLogo.WORD_CY)
             }) {

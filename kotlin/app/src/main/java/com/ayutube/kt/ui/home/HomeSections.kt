@@ -126,6 +126,21 @@ fun ContinueRow(items: List<ContinueItem>, onOpen: (VideoItem) -> Unit) {
     }
 }
 
+/** Some videos in one sideways row (used for "Because you watched ..."). */
+@Composable
+fun VideoRow(videos: List<VideoItem>, onOpen: (VideoItem) -> Unit) {
+    val width = cardWidth()
+
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items(videos, key = { video -> video.id }) { video ->
+            CompactVideoCard(video, width) { onOpen(video) }
+        }
+    }
+}
+
 /** Two sideways rows of trending videos. Each row scrolls on its own; more are asked for near either end. */
 @Composable
 fun TrendingGrid(

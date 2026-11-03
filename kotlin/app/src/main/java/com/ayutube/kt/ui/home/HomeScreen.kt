@@ -203,6 +203,13 @@ fun HomeScreen(
                         item(key = "sec-continue") { ContinueRow(state.continueWatching, onOpen) }
                     }
 
+                    state.because?.let { shelf ->
+                        if (shelf.videos.isNotEmpty()) {
+                            item(key = "sec-because-title") { HomeTitle("Because you watched ${shelf.title}") }
+                            item(key = "sec-because") { VideoRow(shelf.videos, onOpen) }
+                        }
+                    }
+
                     if (state.trending.isNotEmpty() || state.trendingLoading) {
                         item(key = "sec-trending-title") { HomeTitle("Trending Now") }
                         item(key = "sec-trending") {

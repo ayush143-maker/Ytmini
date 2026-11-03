@@ -10,7 +10,11 @@ import org.schabi.newpipe.extractor.Page
  * (or channel) floods the list. Each call to [nextBatch] continues where the
  * last one stopped.
  */
-class FeedBuilder(queries: List<String>) {
+class FeedBuilder(
+    queries: List<String>,
+    private val minDurationSec: Long = 20L,
+    private val accept: (VideoItem) -> Boolean = { true }
+) {
     private class Source(val query: String) {
         var next: Page? = null
         var started = false
@@ -33,7 +37,7 @@ class FeedBuilder(queries: List<String>) {
 
                     if (page.next == null) source.done = true
 
-                    source.buffer.addAll(page.items.filter { it.durationSec >= 20 })
+                    source.buffer.addAll(page.items.filter { it.durationSec >= minDurationSec && accept(it) })
                 } catch (_: Exception) {
                     source.done = true
                 }
