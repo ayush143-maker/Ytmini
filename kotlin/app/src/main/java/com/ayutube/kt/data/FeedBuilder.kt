@@ -5,6 +5,11 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import org.schabi.newpipe.extractor.Page
 
+/** Anything Home can ask for the next page of videos. */
+interface Feed {
+    suspend fun nextBatch(count: Int): List<VideoItem>
+}
+
 /**
  * Builds a feed from several searches and interleaves them, so no single topic
  * (or channel) floods the list. Each call to [nextBatch] continues where the
@@ -13,8 +18,9 @@ import org.schabi.newpipe.extractor.Page
 class FeedBuilder(
     queries: List<String>,
     private val minDurationSec: Long = 20L,
-    private val accept: (VideoItem) -> Boolean = { true }
-) {
+    private val accept: (VideoItem) -> Boolean = { true },
+    private val maxSameChannel: Int = 2
+) : Feed {
     private class Source(val query: String) {
         var next: Page? = null
         var started = false
@@ -56,8 +62,8 @@ class FeedBuilder(
                 continue
             }
 
-            // At most two in a row from the same channel.
-            if (recentChannels.count { it == video.channel } >= 2) continue
+            // Not too many from the same channel close together.
+            if (recentChannels.count { it == video.channel } >= maxSameChannel) continue
 
             iterator.remove()
             seen += video.id
@@ -71,7 +77,7 @@ class FeedBuilder(
         return null
     }
 
-    suspend fun nextBatch(count: Int): List<VideoItem> {
+    override suspend fun nextBatch(count: Int): List<VideoItem> {
         val out = mutableListOf<VideoItem>()
         var rounds = 0
 

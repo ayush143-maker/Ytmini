@@ -7,6 +7,8 @@ import com.ayutube.kt.data.FeedBuilder
 import com.ayutube.kt.data.HomeTopics
 import com.ayutube.kt.data.VideoItem
 import com.ayutube.kt.data.ExtractorRepository
+import com.ayutube.kt.data.Feed
+import com.ayutube.kt.data.mixedHomeFeed
 import com.ayutube.kt.data.TrendingPolicy
 import kotlin.random.Random
 import kotlinx.coroutines.async
@@ -46,10 +48,10 @@ class HomeViewModel : ViewModel() {
     val state: StateFlow<HomeState> = _state
 
     private var study: StudyConfig? = null
-    private var builder: FeedBuilder? = null
+    private var builder: Feed? = null
     private var loadingMore = false
     private var generation = 0
-    private var trendingBuilder: FeedBuilder? = null
+    private var trendingBuilder: Feed? = null
     private var loadingMoreTrending = false
     private var shelfFor: String? = null
 
@@ -63,15 +65,26 @@ class HomeViewModel : ViewModel() {
             .replace(Regex("[^\\p{L}\\p{N}\\s']"), " ")
             .trim().split(Regex("\\s+")).take(6).joinToString(" ")
 
-    /** What Home searches for, and which videos it leaves out. */
-    private class Taste(val queries: List<String>, val accept: (VideoItem) -> Boolean)
+    /** What Home is built from: a fresh search (hot), recent interests, ordinary topics, and the videos to leave out. */
+    private class Taste(
+        val hot: List<String>,
+        val hotBudget: Int,
+        val interest: List<String>,
+        val explore: List<String>,
+        val accept: (VideoItem) -> Boolean
+    ) {
+        fun feed(): Feed = mixedHomeFeed(hot, hotBudget, interest, explore, accept)
+    }
 
     /**
-     * What the person seems to like, worked out from data on the phone: searches, likes, videos watched
-     * (how far they got counts), the most watched channel and followed channels. Every signal is a
-     * search with a weight, newer and stronger ones weigh more, and a few are picked at random, so one
-     * video never takes over the feed and a refresh still brings something different. The rest of the
-     * feed is a mix of ordinary topics so there is always something new. Videos already watched are left out.
+     * What the person seems to like, worked out from data on the phone.
+     *
+     * Hot: what they searched in the last day. A search from the last hour puts 3 videos of it into the
+     * feed, spread out; 2 up to six hours; 1 up to a day; after that it is just one of the signals.
+     * Interest: searches, likes, videos watched (how far they got counts), the most watched channel and
+     * followed channels, each a search with a weight (newer and stronger weigh more), a few picked at random,
+     * so one video never takes over the feed. Explore: ordinary topics, so there is always variety.
+     * Videos already watched, and the last few opened, are left out.
      */
     private suspend fun taste(): Taste {
         val library = AyuApp.container.library
@@ -79,6 +92,7 @@ class HomeViewModel : ViewModel() {
         val likes = try { library.likes(8) } catch (_: Exception) { emptyList() }
         val prefs = try { library.channelPrefs() } catch (_: Exception) { emptyList() }
         val searches = try { AyuApp.container.recents.all().take(4) } catch (_: Exception) { emptyList() }
+        val fresh = try { AyuApp.container.recents.recent(24L * 60 * 60 * 1000) } catch (_: Exception) { emptyList() }
 
         fun completion(progress: Int, length: Int?): Float = when {
             length != null && length > 0 -> (progress.toFloat() / length).coerceIn(0f, 1f)
@@ -86,10 +100,34 @@ class HomeViewModel : ViewModel() {
             else -> 0.2f
         }
 
-        val watched = history
-            .filter { completion(it.progressSeconds, it.durationSeconds) >= 0.7f }
-            .map { it.videoId }
-            .toSet()
+        val watched = (
+            history.filter { completion(it.progressSeconds, it.durationSeconds) >= 0.7f }.map { it.videoId } +
+                history.take(3).map { it.videoId }
+            ).toSet()
+
+        // Hot: the newest searches, plus the artist or channel of what was just watched.
+        val hot = mutableListOf<String>()
+        var hotBudget = 0
+
+        fresh.take(2).forEach { hot += it.first }
+
+        if (hot.isNotEmpty()) {
+            val age = fresh.first().second
+
+            hotBudget = when {
+                age <= 3_600_000L -> 3
+                age <= 6 * 3_600_000L -> 2
+                else -> 1
+            }
+
+            val last = history.firstOrNull()
+
+            if (last != null && last.channelTitle.isNotBlank() && hot.none { it.equals(last.channelTitle, ignoreCase = true) }) {
+                val at = try { java.time.Instant.parse(last.watchedAt).toEpochMilli() } catch (_: Exception) { 0L }
+
+                if (System.currentTimeMillis() - at <= 3 * 3_600_000L) hot += last.channelTitle
+            }
+        }
 
         val signals = mutableListOf<Pair<String, Float>>()
 
@@ -132,12 +170,14 @@ class HomeViewModel : ViewModel() {
 
             val choice = pool.removeAt(index)
 
-            if (picked.none { it.equals(choice.first, ignoreCase = true) }) picked += choice.first
+            if (picked.none { it.equals(choice.first, ignoreCase = true) } && hot.none { it.equals(choice.first, ignoreCase = true) }) {
+                picked += choice.first
+            }
         }
 
-        val topics = HomeTopics.topics.shuffled().take(if (picked.isEmpty()) 8 else 5).map { it.queries.random() }
+        val topics = HomeTopics.topics.shuffled().take(if (picked.isEmpty() && hot.isEmpty()) 8 else 5).map { it.queries.random() }
 
-        return Taste(picked + topics) { video -> video.id !in watched }
+        return Taste(hot, hotBudget, picked, topics) { video -> video.id !in watched }
     }
 
     /** "Because you watched ...": a few videos YouTube lists as related to the last video that was properly watched. */
@@ -222,12 +262,12 @@ class HomeViewModel : ViewModel() {
 
             // Study mode keeps its own subject feed exactly as before; only the normal mix is personal.
             val personal = if (config == null) taste() else null
-            val queries = when {
-                config != null -> studyQueries(config, index)
-                index == 0 -> personal?.queries.orEmpty()
-                else -> HomeTopics.topics[index - 2].queries
+            val feed: Feed = when {
+                config != null -> FeedBuilder(studyQueries(config, index))
+                personal != null && index == 0 -> personal.feed()
+                personal != null -> FeedBuilder(HomeTopics.topics[index - 2].queries, accept = personal.accept)
+                else -> FeedBuilder(emptyList())
             }
-            val feed = if (personal != null) FeedBuilder(queries, accept = personal.accept) else FeedBuilder(queries)
 
             builder = feed
 
@@ -350,7 +390,7 @@ class HomeViewModel : ViewModel() {
     }
 
     private fun loadTrending() {
-        val feed = FeedBuilder(TrendingPolicy.queries, TrendingPolicy.MIN_DURATION_SEC, TrendingPolicy.accept(relaxed = false))
+        val feed = TrendingPolicy.feed(relaxed = false)
 
         trendingBuilder = feed
         _state.update { it.copy(trendingLoading = true) }
@@ -364,7 +404,7 @@ class HomeViewModel : ViewModel() {
 
             // A quiet week or a slow network can leave the strict filter almost empty: loosen the age and view limits once.
             if (first.size < 4) {
-                val loose = FeedBuilder(TrendingPolicy.queries, TrendingPolicy.MIN_DURATION_SEC, TrendingPolicy.accept(relaxed = true))
+                val loose = TrendingPolicy.feed(relaxed = true)
 
                 trendingBuilder = loose
                 first = try {
@@ -374,7 +414,7 @@ class HomeViewModel : ViewModel() {
                 }
             }
 
-            _state.update { it.copy(trending = first.sortedByDescending { v -> TrendingPolicy.score(v) }, trendingLoading = false) }
+            _state.update { it.copy(trending = first, trendingLoading = false) }
         }
     }
 
@@ -388,7 +428,7 @@ class HomeViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                val more = feed.nextBatch(8).sortedByDescending { TrendingPolicy.score(it) }
+                val more = feed.nextBatch(8)
 
                 _state.update { current -> current.copy(trending = (current.trending + more).distinctBy { it.id }) }
             } catch (_: Exception) {

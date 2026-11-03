@@ -92,7 +92,7 @@ fun SplashOverlay(onDone: () -> Unit) {
             }
 
             // The word sits below the mark, clear of it even at the biggest point of the pulse.
-            val wordK = markW * 1.55f / (WORD_SRC_X1 - AyuLogo.WORD_SRC_X0)
+            val wordK = markW * 1.3f / (WORD_SRC_X1 - AyuLogo.WORD_SRC_X0)
             val wordH = AyuLogo.HEIGHT * wordK
             val wordCy = cy + markH / 2f * PULSE_MAX + markH * 0.28f + wordH / 2f
 
