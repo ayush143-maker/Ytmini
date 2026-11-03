@@ -221,13 +221,13 @@ class HomeViewModel : ViewModel() {
             }
 
             // Study mode keeps its own subject feed exactly as before; only the normal mix is personal.
-            val mine = if (config == null) taste() else null
+            val personal = if (config == null) taste() else null
             val queries = when {
                 config != null -> studyQueries(config, index)
-                index == 0 -> mine?.queries.orEmpty()
+                index == 0 -> personal?.queries.orEmpty()
                 else -> HomeTopics.topics[index - 2].queries
             }
-            val feed = if (mine != null) FeedBuilder(queries, accept = mine.accept) else FeedBuilder(queries)
+            val feed = if (personal != null) FeedBuilder(queries, accept = personal.accept) else FeedBuilder(queries)
 
             builder = feed
 
