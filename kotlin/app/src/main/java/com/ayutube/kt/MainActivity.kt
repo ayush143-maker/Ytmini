@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import com.ayutube.kt.ui.AppRoot
 import com.ayutube.kt.ui.theme.AyuTheme
 
@@ -48,5 +49,20 @@ class MainActivity : ComponentActivity() {
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         AyuApp.container.playback.inPip = isInPictureInPictureMode
+
+        // Leaving picture-in-picture while the screen is already stopped means the window was closed
+        // (the X), not expanded back to the app: pause instead of playing on in the background.
+        if (!isInPictureInPictureMode && lifecycle.currentState == Lifecycle.State.CREATED) {
+            AyuApp.container.playback.pauseAndSave()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+
+        // Same case on phones that stop the screen without reporting the mode change.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode) {
+            AyuApp.container.playback.pauseAndSave()
+        }
     }
 }

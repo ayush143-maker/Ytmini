@@ -503,6 +503,15 @@ class PlaybackSession(
         if (ayu.exo.isPlaying) ayu.exo.pause() else ayu.exo.play()
     }
 
+    /** Pauses and remembers the spot (used when the picture-in-picture window is closed). */
+    fun pauseAndSave() {
+        if (video == null) return
+
+        ayu.exo.pause()
+        playing = false
+        saveProgress()
+    }
+
     fun seekTo(ms: Long) {
         val target = ms.coerceIn(0L, ayu.exo.duration.coerceAtLeast(0L))
 
