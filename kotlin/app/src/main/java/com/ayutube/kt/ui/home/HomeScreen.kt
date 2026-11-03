@@ -84,13 +84,17 @@ fun HomeScreen(
     val density = LocalDensity.current
     var chipsHeightPx by remember { mutableIntStateOf(with(density) { 53.dp.roundToPx() }) }
     var chipsOffset by remember { mutableFloatStateOf(0f) }
+    // Height of the logo row (and, in exam mode, the day counter) above the list: the chips slide up this far, over it.
+    var aboveHeightPx by remember { mutableIntStateOf(0) }
 
     // The chips row moves with the finger: it slides up while scrolling down and slides back on any scroll up.
     // It floats above the list, so the list itself is never resized while scrolling.
     val chipsScroll = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                chipsOffset = (chipsOffset + available.y).coerceIn(-chipsHeightPx.toFloat(), 0f)
+                val slide = if (aboveHeightPx > 0) aboveHeightPx else chipsHeightPx
+
+                chipsOffset = (chipsOffset + available.y).coerceIn(-slide.toFloat(), 0f)
 
                 return Offset.Zero
             }
@@ -147,9 +151,10 @@ fun HomeScreen(
     val days = if (settings.studyMode) Study.daysUntil(profile.examDate) else null
 
     Column(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxWidth().onSizeChanged { aboveHeightPx = it.height }) {
         // Logo on the left, search on the right.
         Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 6.dp, top = 12.dp, bottom = 6.dp),
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 6.dp, top = 12.dp, bottom = 0.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             AyuLogoLockup(height = 32.dp)
@@ -161,7 +166,7 @@ fun HomeScreen(
 
         if (days != null && days >= 0) {
             Row(
-                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp),
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 0.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
@@ -174,6 +179,7 @@ fun HomeScreen(
                     modifier = Modifier.padding(bottom = 6.dp)
                 )
             }
+        }
         }
 
         Box(Modifier.weight(1f).fillMaxWidth().nestedScroll(chipsScroll)) {
